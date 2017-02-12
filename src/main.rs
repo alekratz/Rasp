@@ -10,11 +10,11 @@ mod parser;
 mod ast;
 mod gatherer;
 mod internal;
+mod compiler;
 
 use lexer::Lexer;
 use parser::Parser;
-use gatherer::FunGatherer;
-use internal::FunTable;
+use compiler::Compiler;
 
 use env_logger::LogBuilder;
 use log::{LogRecord, LogLevelFilter, LogLevel};
@@ -123,25 +123,12 @@ fn main() {
     }
 
     let ast = parse_result.unwrap();
-    // get functions
-    let fun_gatherer = FunGatherer { };
-    let fun_result = fun_gatherer.gather(&ast);
-
-    if let Err(e) = fun_result {
-        exit_error(e);
-        unreachable!();
-    }
-
-    let funs = fun_result.unwrap();
-    for fun in &funs {
-        debug!("--------------------------------------------------------------------------------");
-        debug!("name: {}", fun.name);
-        debug!("params: {:?}", fun.params);
-        debug!("docstring: {}", fun.docstring);
-        debug!("body: {} items", fun.body.len());
-    }
-    let mut funtable = FunTable::new(funs);
     // compile
+    let mut compiler = Compiler::new(&ast);
+    let compile_result = compiler.compile();
+    if let Err(ref err_str) = compile_result {
+        exit_error(err_str);
+    }
     // save compiled file(?)
     // run(?)
     // shut down

@@ -25,6 +25,19 @@ impl<'a> FunTable<'a> {
         }
         false
     }
+
+    pub fn dump_debug(&self) {
+        for fun in &self.funs {
+            debug!("--------------------------------------------------------------------------------");
+            debug!("name: {}", fun.name);
+            debug!("params: {:?}", fun.params);
+            debug!("docstring: {}", fun.docstring);
+            debug!("foreign: {}", fun.foreign);
+            if !fun.foreign {
+                debug!("body: {} items", fun.body.len());
+            }
+        }
+    }
 }
 
 /// Defines a function that can be called.
@@ -48,5 +61,13 @@ impl<'a> Function<'a> {
             body: body,
             foreign: foreign,
         }
+    }
+
+    pub fn define(name: String, params: Vec<String>, docstring: String, body: Vec<&'a AST>) -> Function<'a> {
+        Function::new(name, params, docstring, body, false)
+    }
+
+    pub fn external(name: String, params: Vec<String>, docstring: String) -> Function<'a> {
+        Function::new(name, params, docstring, Vec::new(), true)
     }
 }
