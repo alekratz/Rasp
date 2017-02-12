@@ -1,0 +1,85 @@
+;
+; What follows are some very basic definitions for reading strings, writing
+; strings, etc
+;
+; Note that user defined functions start with the @ sign. This is just convention,
+; it is not required. The same goes for built-in functions and the & sign. The
+; vast majority of the builtin functions cover list-based operations.
+;
+; Also note that types start with the : sign. It has not been decided if this is
+; to be recognized as its own token type (for parsing's sake) or if it is merely
+; a convention.
+;
+; The ? symbol in a parameter list for a function denotes that it's optional
+
+; Here is a list of the builtins:
+; &define
+; &extern
+; &car
+; &cdr
+; &list
+; &append
+; &list-to-string
+; &string-to-list
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; TYPEDEFS
+
+; Handles are just ints with fancy names
+(&type :handle :int)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EXTERN FUNCTIONS
+
+(&extern @read (hdl :handle)
+    "Wraps the libc read(int) function.")
+
+(&extern @write (hdl :handle str :string)
+    "Wraps the libc write(int, int) function.")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; UTILITY FUNCTIONS
+
+(&define @reverse (l :listy)
+    "Finds the reverse of a listy object"
+    (if (nil? l)
+        nil
+        (&append (@reverse (&cdr l)) (&list (&car l)))))
+
+(&define @len (s :listy)
+    "Finds the length of a listy object"
+    (if (nil? s)
+        0
+        (+ 1 (@len (&cdr s)))))
+
+(&define @substr-start (s :listy start :int)
+    "Finds a substring from a given start"
+    (if (= start 0)
+        s
+    (if (= start 1)
+        (&cdr s)
+        (@substr (&cdr s) (- start 1)))))
+
+(&define @substr-length (s :listy len :int)
+    "Trims a string down to a given length"
+    (let slen (@len s)
+        (if (< slen len)
+            s
+            (@reverse (@substr-start (@reverse s) (- slen len))))))
+
+(&define @sublist (s :listy start :int ? leng :int)
+    "Finds a substring of a string with a start parameter and an optional end parameter"
+    (if leng
+        (@substr-length (@substr-start s start) leng)
+        (@substr-start s start)))
+
+(&define @format (fmt :string ? item ... tail)
+    "Formats a string"
+    (if (= (@len fmt) 0)
+        ""
+        (&match (@first fmt)
+            ('%
+                (+ (@string item) (@format (@substr fmt 1) ... tail)))
+            (c
+                (+ c (@format (@substr fmt 1) item ... tail))))))
+
