@@ -6,11 +6,6 @@ pub struct Parser<'a> {
     current_tok: Token,
 }
 
-pub struct ParseError{
-    pos: Range,
-    message: String
-}
-
 fn parse_error(pos: &Range, message: &str) -> String {
     format!("{}: {}", pos, message)
 }

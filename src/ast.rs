@@ -19,7 +19,6 @@ impl AST {
             panic!("Tried to add an expression to a non-AST::Expr item");
         }
     }
-    */
 
     pub fn range(&self) -> &Range {
         match self {
@@ -30,6 +29,7 @@ impl AST {
         }
     }
 
+    */
     pub fn identifier(&self) -> &str {
         match self {
             &AST::Identifier(_, ref s) => s,
@@ -37,6 +37,7 @@ impl AST {
         }
     }
 
+    /*
     pub fn is_expr(&self) -> bool {
         match self {
             &AST::Expr(_, _) => true,
@@ -44,7 +45,6 @@ impl AST {
         }
     }
 
-    /*
     pub fn is_stringlit(&self) -> bool {
         match self {
             &AST::StringLit(_, _) => true,

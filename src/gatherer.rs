@@ -33,7 +33,7 @@ impl<'a> FunGatherer {
     fn visit_define(&self, exprs: &'a Vec<AST>) -> Result<internal::Function<'a>, String> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == DEFINE_KEYWORD);
         if exprs.len() < 3 {
-            return Err(format!("{kw} must be at least 3 items long ({kw} NAME (PARAMS) ... )", kw=DEFINE_KEYWORD));
+            return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD));
         }
         let name = exprs[1].identifier();
         let mut params = Vec::new();

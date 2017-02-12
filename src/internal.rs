@@ -40,7 +40,8 @@ impl<'a> FunTable<'a> {
     }
 }
 
-/// Defines a function that can be called.
+/// Describes a function that has been defined in a program.
+/// If the function is foreign, its body must be empty.
 pub struct Function<'a> {
     pub name: String,
     pub params: Vec<String>,
@@ -63,10 +64,12 @@ impl<'a> Function<'a> {
         }
     }
 
+    /// User-defined function definition shortcut
     pub fn define(name: String, params: Vec<String>, docstring: String, body: Vec<&'a AST>) -> Function<'a> {
         Function::new(name, params, docstring, body, false)
     }
 
+    /// External function definition shortcut
     pub fn external(name: String, params: Vec<String>, docstring: String) -> Function<'a> {
         Function::new(name, params, docstring, Vec::new(), true)
     }
