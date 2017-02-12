@@ -1,0 +1,11 @@
+[package]
+name = "rasp"
+version = "0.1.0"
+authors = ["Alek Ratzloff <alekratz@gmail.com>"]
+
+[dependencies]
+argparse = "*"
+log = "0.3"
+env_logger = "0.3"
+ansi_term = "0.9"
+time = "0.1"
