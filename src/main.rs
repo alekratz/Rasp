@@ -87,6 +87,7 @@ fn main() {
             let color = match record.level() {
                 LogLevel::Error => Colour::Red.bold(),
                 LogLevel::Warn => Style::new().fg(Colour::Yellow),
+                LogLevel::Info => Style::new().fg(Colour::White),
                 _ => Colour::White.dimmed(),
             };
             format!("{}", color.paint(format!("{time:.2} [{level:07}] {msg}", 
