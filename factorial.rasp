@@ -1,0 +1,13 @@
+(&include "basic.rasp")
+
+; Define a function taking one argument
+(&define factorial (x)
+    "Evaluates x! - i.e., x factorial"
+    (if (<= x 1)
+        1
+        (* x (factorial (- x 1)))))
+
+(factorial 123)
+(factorial 10)
+(factorial 1.1)
+

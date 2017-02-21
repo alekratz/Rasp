@@ -1,0 +1,12 @@
+;
+; String manipulation functions
+
+(&define @format (fmt :string ? item ... tail)
+    "Formats a string using the % character"
+    (if (= (@len fmt) 0)
+        ""
+        (&match (@first fmt)
+            ('%
+                (+ (@string item) (@format (@sublist fmt 1) ... tail)))
+            (c
+                (+ c (@format (@sublist fmt 1) item ... tail))))))
