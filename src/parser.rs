@@ -1,5 +1,6 @@
 use lexer::{Lexer, Token, Range};
 use ast::AST;
+use errors::*;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -18,34 +19,45 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<AST>, String> {
+    pub fn parse(&mut self) -> Result<Vec<AST>> {
         self.next();
         let mut ast = Vec::new();
         loop {
             match self.current_tok {
-                Token::Identifier(_, _) | Token::StringLit(_, _) | Token::Lparen(_) | Token::Number(_, _) => {
-                    match self.expr() {
-                        Err((r, e)) => return Err(parse_error(&r, &e)),
-                        Ok(a) => ast.push(a),
+                Token::Identifier(r, _) | Token::StringLit(r, _) | Token::Lparen(r) | Token::Number(r, _) => {
+                    let expr_result = self.expr();
+                    if expr_result.is_err() {
+                        let start = r.start;
+                        let end = self.range().end;
+                        if start == end {
+                            expr_result.chain_err(|| format!("expression at {}", Range::new(start, end)))?;
+                        }
+                        else {
+                            expr_result.chain_err(|| format!("expression spanning {}", Range::new(start, end)))?;
+                        }
+                    }
+                    else {
+                        ast.push(expr_result.unwrap());
                     }
                 },
                 Token::Comment(_, _) => self.next(),
                 Token::Eof(_) => break,
                 Token::Unknown(r, _) => return Err(parse_error(&r,
-                    &self.unexpected_token("left paren, identifier, string literal, or comment"))),
+                    &self.unexpected_token("left paren, identifier, string literal, or comment")).into()),
                 Token::Error(r, ref s) =>
-                    return Err(parse_error(&r, &format!("lexer error: {}", s))),
+                    return Err(parse_error(&r, &format!("lexer error: {}", s)).into()),
                 Token::None => unreachable!(),
                 ref t => return Err(parse_error(&t.range(),
-                    &self.unexpected_token("left paren, identifier, string literal, or comment"))),
+                    &self.unexpected_token("left paren, identifier, string literal, or comment")).into()),
             }
         }
         Ok(ast)
     }
 
-    fn expr(&mut self) -> Result<AST, (Range, String)> {
+    fn expr(&mut self) -> Result<AST> {
         if !self.is_expr_start() {
-            return Err((self.current_tok.range(), self.unexpected_token("left paren, identifier, number, or string literal")))
+            return Err(parse_error(&self.current_tok.range(),
+                &self.unexpected_token("left paren, identifier, number, or string literal")).into())
         }
 
         let start = self.lexer
@@ -60,21 +72,25 @@ impl<'a> Parser<'a> {
                 self.next();
                 // the next token may not be an expression start; it may just be an rparen
                 while self.is_expr_start() {
-                    match self.expr() {
-                        Ok(expr) => exprs.push(expr),
-                        Err((r, s)) => return Err((r, s)),
+                    let expr_result = self.expr();
+                    if expr_result.is_err() {
+                        expr_result.chain_err(|| "invalid expression")?;
+                    }
+                    else {
+                        exprs.push(expr_result.unwrap());
                     }
                 }
 
                 if let Token::Error(r, ref s) = self.current_tok {
-                    return Err((r, format!("syntax error: {}", s)))
+                    return Err(s.as_str()
+                                .into());
                 }
                 else if let Token::Unknown(r, c) = self.current_tok {
-                    return Err((r, format!("syntax error: unexpected character {}", c)))
+                    return Err(parse_error(&r, &format!("syntax error: unexpected character {}", c)).into())
                 }
                 else if !self.current_tok.is_rparen() {
-                    return Err((self.current_tok.range(),
-                        self.unexpected_token("left paren, identifier, string literal, number, or right paren")));
+                    return Err(self.unexpected_token(
+                            "left paren, identifier, string literal, number, or right paren").into());
                 }
 
                 let end = self.lexer
@@ -98,9 +114,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn range(&self) -> &Range {
+        &self.lexer
+            .range
+    }
+
     fn unexpected_token(&self, expected: &'static str) -> String {
-        format!("unexpected {}: expected {}",
-                self.current_tok, expected)
+        format!("unexpected {} at {}: expected {}", self.current_tok, self.current_tok.range(), expected)
     }
 
     fn next(&mut self) {

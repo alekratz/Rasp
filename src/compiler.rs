@@ -1,17 +1,20 @@
 use ast::AST;
 use internal::*;
 use gatherer::*;
+use errors::*;
 
-pub struct Compiler {
+pub struct Compiler<'a> {
+    source_file: &'a str,
     ast: Vec<AST>,
     includes: Vec<AST>,
     fun_table: FunTable,
     type_table: TypeTable,
 }
 
-impl Compiler {
-    pub fn new(ast: Vec<AST>) -> Compiler {
+impl<'a> Compiler<'a> {
+    pub fn new(source_file: &str, ast: Vec<AST>) -> Compiler {
         Compiler {
+            source_file: source_file,
             ast: ast,
             includes: Vec::new(),
             fun_table: FunTable::new(Vec::new()),
@@ -19,18 +22,20 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self) -> Result<(), String>{
+    pub fn compile(&mut self) -> Result<()>{
         // get includes
         debug!("Gathering includes");
         {
             let include_gatherer = IncludeGatherer;
             let include_result = include_gatherer.gather(&mut self.ast);
-            if let Err(e) = include_result {
-                return Err(e);
+            if include_result.is_err() {
+                include_result.chain_err(|| format!("in {}", self.source_file))?;
             }
-            let mut asts = include_result.unwrap();
-            for mut include in asts {
-                self.ast.append(&mut include);
+            else {
+                let mut asts = include_result.unwrap();
+                for mut include in asts {
+                    self.ast.append(&mut include);
+                }
             }
         }
         // get types

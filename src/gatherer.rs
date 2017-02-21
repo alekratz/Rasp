@@ -4,6 +4,7 @@ use internal::Type;
 use lexer;
 use parser;
 use util;
+use errors::*;
 
 use std::path::Path;
 
@@ -14,31 +15,38 @@ const INCLUDE_KEYWORD: &'static str = "&include";
 
 pub trait Gatherer<T> {
 
-    fn gather(&self, ast: &mut Vec<AST>) -> Result<Vec<T>, String> {
+    fn gather(&self, ast: &mut Vec<AST>) -> Result<Vec<T>> {
         let mut items = Vec::new();
         for ast_item in ast {
             if let &mut AST::Expr(ref range, ref mut exprs) = ast_item {
-                match self.visit_exprs(exprs) {
-                    Ok(i) => if i.is_some() {
-                        items.push(i.unwrap())
-                    },
-                    Err(s) => return Err(format!("{}: {}", range, s)),
+                let visit_result = self.visit_exprs(exprs);
+                if visit_result.is_err() {
+                    visit_result.chain_err(|| format!("builtin expression at {}", range))?;
+                }
+                else if let Ok(i) = visit_result {
+                    if i.is_some() {
+                        items.push(i.unwrap());
+                    }
                 }
             }
         }
         Ok(items)
     }
 
-    fn visit_exprs(&self, exprs: &Vec<AST>) -> Result<Option<T>, String> {
+    fn visit_exprs(&self, exprs: &Vec<AST>) -> Result<Option<T>> {
         // Get the first expression, if any
         if exprs.len() == 0 {
             Ok(None)
         }
         else if let AST::Identifier(_, ref ident) = exprs[0] {
             if ident == self.keyword() {
-                match self.visit_expr(exprs) {
-                    Ok(fun) => Ok(Some(fun)),
-                    Err(s) => Err(format!("{}: {}", self.keyword(), s)),
+                let visit_result = self.visit_expr(exprs);
+                if visit_result.is_err() {
+                    visit_result.chain_err(|| self.keyword())?;
+                    unreachable!();
+                }
+                else {
+                    Ok(Some(visit_result.unwrap()))
                 }
             }
             else {
@@ -50,7 +58,7 @@ pub trait Gatherer<T> {
         }
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<T, String>;
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<T>;
 
     fn keyword(&self) -> &'static str;
 }
@@ -66,7 +74,7 @@ impl Gatherer<Vec<AST>> for IncludeGatherer {
         INCLUDE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<Vec<AST>, String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<Vec<AST>> {
         if exprs.len() == 1 {
             return Ok(Vec::new());
         }
@@ -80,14 +88,14 @@ impl Gatherer<Vec<AST>> for IncludeGatherer {
                 let path = Path::new(p);
                 // ensure all paths exist
                 if !path.exists() {
-                    return Err(format!("included file {} does not exist", path.display()));
+                    return Err(format!("included file {} does not exist", path.display()).into());
                 }
                 // NOTE : This will print illegal index types AND paths in the same loop; makes handling multiple errors a little weird
-                // TODO : error_chain
                 paths.push(path);
             }
             else {
-                return Err(format!("item at index {} must be a string literal (got {} instead)", index, path_expr));
+                return Err(format!("item at index {} must be a string literal (got {} instead)", 
+                                   index, path_expr).into());
             }
 
             index += 1;
@@ -96,9 +104,12 @@ impl Gatherer<Vec<AST>> for IncludeGatherer {
         // attempt to compile all paths collected thus far
         let mut asts = Vec::new();
         for path in paths {
-            match self.compile_path(path) {
-                Ok(mut a) => asts.append(&mut a),
-                Err(s) => return Err(format!("error from included file {}: {}", path.display(), s)),
+            let compile_result = self.compile_path(path);
+            if compile_result.is_err() {
+                compile_result.chain_err(|| format!("included file {}", path.display()))?;
+            }
+            else if let Ok(mut a) = compile_result {
+                asts.append(&mut a);
             }
         }
         Ok(asts)
@@ -107,7 +118,7 @@ impl Gatherer<Vec<AST>> for IncludeGatherer {
 
 impl IncludeGatherer {
     /// Utility function that attempts to turn a path into an AST
-    fn compile_path(&self, path: &Path) -> Result<Vec<AST>, String> {
+    fn compile_path(&self, path: &Path) -> Result<Vec<AST>> {
         // I implore you to find a messier method
         let file_contents = util::read_file(path.to_str().expect("Got a weird filename"))
             .expect("Failed to load the file (permissions issues probably)");
@@ -131,10 +142,11 @@ impl Gatherer<internal::Function> for FunGatherer {
         DEFINE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function, String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == DEFINE_KEYWORD);
         if exprs.len() < 3 {
-            return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD));
+            return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD)
+                       .into());
         }
         let name = exprs[1].identifier();
         let mut params = Vec::new();
@@ -143,11 +155,12 @@ impl Gatherer<internal::Function> for FunGatherer {
                 for e in expr_list {
                     match e {
                         &AST::Identifier(_, ref s) => params.push(s.to_string()),
-                        ref t => return Err(format!("expected identifier in params list, but instead got a {} item", t)),
+                        ref t => return Err(format!("expected identifier in params list, but instead got a {} item", t)
+                                            .into()),
                     }
                 }
             },
-            ref t => return Err(format!("expected params list, but instead got a {} item", t)),
+            ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
         }
         if exprs.len() == 3 {
             Ok(internal::Function::define(name.to_string(), params, String::new(), Vec::new()))
@@ -185,10 +198,10 @@ impl Gatherer<internal::Function> for ExternGatherer {
         EXTERN_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function, String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == EXTERN_KEYWORD );
         if exprs.len() < 3 || exprs.len() > 4 {
-            return Err(format!("{kw} must be at least 3 and at most 4 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=EXTERN_KEYWORD));
+            return Err(format!("{kw} must be at least 3 and at most 4 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=EXTERN_KEYWORD).into());
         }
         let name = exprs[1].identifier();
         let mut params = Vec::new();
@@ -197,11 +210,11 @@ impl Gatherer<internal::Function> for ExternGatherer {
                 for e in expr_list {
                     match e {
                         &AST::Identifier(_, ref s) => params.push(s.to_string()),
-                        ref t => return Err(format!("expected identifier in params list, but instead got a {} item", t)),
+                        ref t => return Err(format!("expected identifier in params list, but instead got a {} item", t).into()),
                     }
                 }
             },
-            ref t => return Err(format!("expected params list, but instead got a {} item", t)),
+            ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
         }
         if exprs.len() == 3 {
             Ok(internal::Function::external(name.to_string(), params, String::new()))
@@ -211,13 +224,15 @@ impl Gatherer<internal::Function> for ExternGatherer {
                 s.to_string()
             }
             else {
-                return Err(format!("expected string literal for {kw} DOCSTRING, but instead got {}", exprs[3], kw=EXTERN_KEYWORD));
+                return Err(format!("expected string literal for {kw} DOCSTRING, but instead got {}", exprs[3], kw=EXTERN_KEYWORD)
+                           .into());
             };
             Ok(internal::Function::external(name.to_string(), params, docstring))
         }
         else {
             assert!(exprs.len() > 4);
-            Err(format!("too many arguments: expected at least 3 and at most 4 arguments to {kw}, but got {} arguments instead", exprs.len(), kw=EXTERN_KEYWORD))
+            Err(format!("too many arguments: expected at least 3 and at most 4 arguments to {kw}, but got {} arguments instead", exprs.len(), kw=EXTERN_KEYWORD)
+                .into())
         }
     }
 }
@@ -233,29 +248,30 @@ impl Gatherer<(String, String)> for TypeGatherer {
         TYPE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String), String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String)> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == TYPE_KEYWORD);
         if exprs.len() != 3 {
-            return Err(format!("{kw} must be at exactly 3 items long: I found {} items ({kw} TYPE NEWTYPE)", exprs.len(), kw=TYPE_KEYWORD));
+            return Err(format!("{kw} must be at exactly 3 items long: I found {} items ({kw} TYPE NEWTYPE)", exprs.len(), kw=TYPE_KEYWORD)
+                       .into());
         }
         if !exprs[1].is_identifier() {
-            return Err(format!("param 1: expected identifier, but instead got {}", exprs[1]));
+            return Err(format!("param 1: expected identifier, but instead got {}", exprs[1]).into());
         }
         if !exprs[2].is_identifier() {
-            return Err(format!("param 2: expected identifier, but instead got {}", exprs[2]));
+            return Err(format!("param 2: expected identifier, but instead got {}", exprs[2]).into());
         }
         let oldtype = exprs[1].identifier();
         let newtype = exprs[2].identifier();
         if oldtype == newtype {
             return Err(format!("illegal type definition: cannot define a type to itself ({} to {})", 
-                               oldtype, newtype));
+                               oldtype, newtype).into());
         }
         Ok((oldtype.to_string(), newtype.to_string()))
     }
 }
 
 impl<'b> TypeGatherer {
-    pub fn gather_and_link(&self, exprs: &mut Vec<AST>) -> Result<internal::TypeTable, String> {
+    pub fn gather_and_link(&self, exprs: &mut Vec<AST>) -> Result<internal::TypeTable> {
         let mut type_table = internal::TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
         match self.gather(exprs) {
             Ok(type_mappings) => {
@@ -265,7 +281,8 @@ impl<'b> TypeGatherer {
                         let pointing_to = type_table.get_type(&new)
                                                     .unwrap();
                         if old != pointing_to.name() {
-                            return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name()));
+                            return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name())
+                                       .into());
                         }
                     }
                     else if type_table.has_type(&old) {
@@ -288,7 +305,7 @@ impl<'b> TypeGatherer {
                         for (old, new) in proto_types {
                             err_msg += &format!("    {} -> {}\n", old, new);
                         }
-                        return Err(err_msg);
+                        return Err(err_msg.into());
                     }
 
                     // add types to table
@@ -297,7 +314,8 @@ impl<'b> TypeGatherer {
                             let pointing_to = type_table.get_type(new)
                                 .unwrap();
                             if old != pointing_to.name() {
-                                return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name()));
+                                return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name())
+                                           .into());
                             }
                         }
                         else if type_table.has_type(old) {

@@ -1,7 +1,7 @@
 use std::str::Chars;
 use std::fmt;
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub enum Token {
     None,
     Eof(Range),
@@ -25,7 +25,7 @@ impl fmt::Display for Token {
             &Token::Identifier(_, ref s) => format!("{}", s),
             &Token::StringLit(_, _) => String::from("string literal"),
             &Token::Number(_, _) => String::from("number"),
-            &Token::Comment(_, ref s) => format!(";{}", s),
+            &Token::Comment(_, ref s) => String::from("comment"),
             &Token::Unknown(_, ref c) => format!("unknown character `{}'", c),
             &Token::Error(_, ref e) => format!("syntax error: {}", e),
         };
@@ -60,6 +60,7 @@ impl Token {
             &Token::Comment(r, _) => r,
             &Token::Unknown(r, _) => r,
             &Token::Error(r, _) => r,
+            &Token::Eof(r) => r,
             _ => Range::new(Pos::start(), Pos::start()),
         }
     }
@@ -162,9 +163,11 @@ impl<'a> Lexer<'a> {
             curr: None,
             peek: None,
         };
+        /*
         lexer.range
             .start
             .advance();
+        */
         lexer.peek = lexer.source_iter.next();
         lexer
     }
@@ -176,6 +179,7 @@ impl<'a> Lexer<'a> {
             let tok = match c {
                 ';' => Token::Comment(self.range, self.eat_comment()),
                 '(' => { 
+                    self.range.catchup();
                     Token::Lparen(self.range)
                 },
                 ')' => Token::Rparen(self.range),
@@ -196,6 +200,7 @@ impl<'a> Lexer<'a> {
             tok
         }
         else {
+            self.range.catchup();
             Token::Eof(self.range)
         }
     }
@@ -277,7 +282,7 @@ impl<'a> Lexer<'a> {
                     },
                     '.' => {
                         if decimal {
-                            return Err("decimal specified twice in number".to_string());
+                            return Err(String::from("decimal specified twice in number"));
                         }
                         else if let Some(p) = self.peek {
                             match p {
@@ -286,7 +291,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
                         else {
-                            return Err("EOF reached before end of number".to_string());
+                            return Err(String::from("EOF reached before end of number"));
                         }
                     },
                     // suffix chars

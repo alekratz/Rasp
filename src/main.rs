@@ -1,9 +1,14 @@
+// error_chain is known to recurse deeply
+#![recursion_limit = "1024"]
+
 extern crate argparse;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
 extern crate ansi_term;
 extern crate time;
+#[macro_use]
+extern crate error_chain;
 
 mod lexer;
 mod parser;
@@ -12,6 +17,10 @@ mod gatherer;
 mod internal;
 mod compiler;
 mod util;
+mod errors {
+    // error_chain setup
+    error_chain! { }
+}
 
 use lexer::Lexer;
 use parser::Parser;
@@ -42,7 +51,7 @@ impl Config {
     }
 }
 
-fn parse_args() -> Result<Config, String> {
+fn parse_args() -> Config {
     let mut config = Config::new();
     {
         let mut ap = ArgumentParser::new();
@@ -57,7 +66,7 @@ fn parse_args() -> Result<Config, String> {
         //    .add_option(&["-v", "--verbose"], StoreTrue, "verbose output");
         ap.parse_args_or_exit();
     }
-    Ok(config)
+    config
 }
 
 fn exit_error<T: Display>(err_str: T) {
@@ -92,22 +101,21 @@ fn main() {
     }
     trace!("Starting up");
     trace!("Parsing args");
-    // parse args
-    let config_result = parse_args();
-    if let &Err(ref err_str) = &config_result {
-        exit_error(err_str);
-    }
-    let config = config_result.unwrap();
+    // parse args; this automatically exits on failure
+    let config = parse_args();
+
     // load file contents
     let read_result = util::read_file(&config.file);
     if let &Err(ref err) = &read_result {
         exit_error(format!("could not read {}: {}", config.file, err));
     }
     trace!("Load {}", &config.file);
-    let source_text = read_result.unwrap();
+
     // lex
+    let source_text = read_result.unwrap();
     trace!("Creating lexer");
     let lexer = Lexer::new(&source_text);
+
     // parse
     trace!("Creating parser");
     let mut parser = Parser::new(lexer);
@@ -116,14 +124,23 @@ fn main() {
     if let Err(ref err_str) = parse_result {
         exit_error(err_str);
     }
-
     let ast = parse_result.unwrap();
+
     // compile
     trace!("Compiling");
-    let mut compiler = Compiler::new(ast);
+    let mut compiler = Compiler::new(&config.file, ast);
     let compile_result = compiler.compile();
-    if let Err(ref err_str) = compile_result {
-        exit_error(err_str);
+    if let Err(ref err_chain) = compile_result {
+        use error_chain::ChainedError;
+        error!("Compile error. Halting.");
+        error!("Error details:");
+        error!("{}", err_chain.iter()
+                    .nth(0)
+                    .unwrap());
+        for err in err_chain.iter().skip(1) {
+            error!("    caused by {}", err);
+        }
+        exit_error("Compilation failed");
     }
     // save compiled file(?)
     // run(?)

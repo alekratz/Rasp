@@ -1,4 +1,5 @@
 use ast::AST;
+use errors::*;
 
 const INT_TYPE: &'static str = ":int";
 const STRING_TYPE: &'static str = ":string";
@@ -92,13 +93,13 @@ impl TypeTable {
 
     /// Merges two type tables, consuming the other typetable.
     /// This will result in an error if there are any mismatched types.
-    pub fn merge(&mut self, other: TypeTable) -> Result<(), String> {
+    pub fn merge(&mut self, other: TypeTable) -> Result<()> {
         for t in &other.types {
             if let Some(ref other_type) = self.get_type(t.name()) {
                 if t.name() == other_type.name() && t.is_typedef() && other_type.is_typedef()
                 && t.alias() != other_type.alias() {
                     return Err(format!("type {} was originally set to alias {}, and is later set to alias {}",
-                                       t.name(), t.alias(), other_type.alias()));
+                                       t.name(), t.alias(), other_type.alias()).into());
                 }
             }
         }
