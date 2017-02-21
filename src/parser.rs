@@ -81,7 +81,7 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-                if let Token::Error(r, ref s) = self.current_tok {
+                if let Token::Error(_, ref s) = self.current_tok {
                     return Err(s.as_str()
                                 .into());
                 }

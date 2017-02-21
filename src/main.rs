@@ -131,7 +131,6 @@ fn main() {
     let mut compiler = Compiler::new(&config.file, ast);
     let compile_result = compiler.compile();
     if let Err(ref err_chain) = compile_result {
-        use error_chain::ChainedError;
         error!("Compile error. Halting.");
         error!("Error details:");
         error!("{}", err_chain.iter()

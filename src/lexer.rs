@@ -25,7 +25,7 @@ impl fmt::Display for Token {
             &Token::Identifier(_, ref s) => format!("{}", s),
             &Token::StringLit(_, _) => String::from("string literal"),
             &Token::Number(_, _) => String::from("number"),
-            &Token::Comment(_, ref s) => String::from("comment"),
+            &Token::Comment(_, _) => String::from("comment"),
             &Token::Unknown(_, ref c) => format!("unknown character `{}'", c),
             &Token::Error(_, ref e) => format!("syntax error: {}", e),
         };

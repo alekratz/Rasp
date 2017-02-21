@@ -13,12 +13,19 @@ const EXTERN_KEYWORD: &'static str = "&extern";
 const TYPE_KEYWORD: &'static str = "&type";
 const INCLUDE_KEYWORD: &'static str = "&include";
 
-pub trait Gatherer<T> {
+pub fn is_builtin(keyword: &str) -> bool {
+    keyword == DEFINE_KEYWORD   ||
+    keyword == EXTERN_KEYWORD   ||
+    keyword == TYPE_KEYWORD     ||
+    keyword == INCLUDE_KEYWORD
+}
 
-    fn gather(&self, ast: &mut Vec<AST>) -> Result<Vec<T>> {
+pub trait Gatherer<T> {
+    fn gather(&self, ast: &Vec<AST>) -> Result<Vec<T>> {
         let mut items = Vec::new();
+
         for ast_item in ast {
-            if let &mut AST::Expr(ref range, ref mut exprs) = ast_item {
+            if let &AST::Expr(ref range, ref exprs) = ast_item {
                 let visit_result = self.visit_exprs(exprs);
                 if visit_result.is_err() {
                     visit_result.chain_err(|| format!("builtin expression at {}", range))?;
@@ -36,7 +43,7 @@ pub trait Gatherer<T> {
     fn visit_exprs(&self, exprs: &Vec<AST>) -> Result<Option<T>> {
         // Get the first expression, if any
         if exprs.len() == 0 {
-            Ok(None)
+            return Ok(None);
         }
         else if let AST::Identifier(_, ref ident) = exprs[0] {
             if ident == self.keyword() {
@@ -46,16 +53,11 @@ pub trait Gatherer<T> {
                     unreachable!();
                 }
                 else {
-                    Ok(Some(visit_result.unwrap()))
+                    return Ok(Some(visit_result.unwrap()))
                 }
             }
-            else {
-                Ok(None)
-            }
         }
-        else {
-            Ok(None)
-        }
+        Ok(None)
     }
 
     fn visit_expr(&self, exprs: &Vec<AST>) -> Result<T>;
@@ -242,14 +244,16 @@ impl Gatherer<internal::Function> for ExternGatherer {
  */
 pub struct TypeGatherer;
 
-impl Gatherer<(String, String)> for TypeGatherer {
+impl Gatherer<(String, String, lexer::Range)> for TypeGatherer {
 
     fn keyword(&self) -> &'static str {
         TYPE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String)> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String, lexer::Range)> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == TYPE_KEYWORD);
+        let start = exprs[0].range()
+            .start;
         if exprs.len() != 3 {
             return Err(format!("{kw} must be at exactly 3 items long: I found {} items ({kw} TYPE NEWTYPE)", exprs.len(), kw=TYPE_KEYWORD)
                        .into());
@@ -266,22 +270,25 @@ impl Gatherer<(String, String)> for TypeGatherer {
             return Err(format!("illegal type definition: cannot define a type to itself ({} to {})", 
                                oldtype, newtype).into());
         }
-        Ok((oldtype.to_string(), newtype.to_string()))
+        let end = exprs[2].range()
+            .end;
+        Ok((oldtype.to_string(), newtype.to_string(), lexer::Range::new(start, end)))
     }
 }
 
 impl<'b> TypeGatherer {
-    pub fn gather_and_link(&self, exprs: &mut Vec<AST>) -> Result<internal::TypeTable> {
+    pub fn gather_and_link(&self, exprs: &Vec<AST>) -> Result<internal::TypeTable> {
         let mut type_table = internal::TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
         match self.gather(exprs) {
             Ok(type_mappings) => {
                 let mut proto_types = Vec::new();
-                for (old, new) in type_mappings {
+                for (old, new, range) in type_mappings {
                     if type_table.has_type(&new) { // check that the types match before producing an error
                         let pointing_to = type_table.get_type(&new)
                                                     .unwrap();
                         if old != pointing_to.name() {
-                            return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name())
+                            return Err(format!("invalid type mapping from {} to {}: was already set to {} at {}",
+                                               new, old, pointing_to.name(), range)
                                        .into());
                         }
                     }
@@ -289,7 +296,7 @@ impl<'b> TypeGatherer {
                         type_table.add_typedef(&new, &old);
                     }
                     else {
-                        proto_types.push((old, new));
+                        proto_types.push((old, new, range));
                     }
                 }
 
@@ -299,23 +306,23 @@ impl<'b> TypeGatherer {
                         break;
                     }
                     else if last_size == proto_types.len() {
-                        // TODO(alek) platform-agnostic newlines
+                        // TODO(alek) better error message for this type deduction
                         // TODO(alek) tell user what to do if there is *not* a cycle and it's a compiler bug
                         let mut err_msg = String::from("Went one cycle without deducing a type; I am assuming there is a cycle or an invalid type specified. Here are the types I could not deduce:\n");
-                        for (old, new) in proto_types {
-                            err_msg += &format!("    {} -> {}\n", old, new);
+                        for (old, new, range) in proto_types {
+                            err_msg += &format!("    {} -> {} (defined at {})\n", old, new, range);
                         }
                         return Err(err_msg.into());
                     }
 
                     // add types to table
-                    for &(ref old, ref new) in &proto_types {
+                    for &(ref old, ref new, ref range) in &proto_types {
                         if type_table.has_type(new) { // check that the types match before producing an error
                             let pointing_to = type_table.get_type(new)
                                 .unwrap();
                             if old != pointing_to.name() {
-                                return Err(format!("invalid type mapping from {} to {}: was already set to {}", new, old, pointing_to.name())
-                                           .into());
+                                return Err(format!("invalid type mapping from {} to {} at {}: was already set to {}",
+                                                   new, old, range, pointing_to.name()).into());
                             }
                         }
                         else if type_table.has_type(old) {
@@ -325,7 +332,7 @@ impl<'b> TypeGatherer {
 
                     // remove any types that were added
                     proto_types = proto_types.into_iter()
-                                             .filter(|&(_, ref new)| {
+                                             .filter(|&(_, ref new, _)| {
                                                  !type_table.has_type(new)
                                              })
                                              .collect::<Vec<_>>();

@@ -72,7 +72,7 @@ impl TypeTable {
     pub fn get_type(&self, type_name: &str) -> Option<&Type> {
         for t in &self.types {
             if t.name() == type_name {
-                if let &Type::TypeDef(ref typedef, ref points_to) = t {
+                if let &Type::TypeDef(_, ref points_to) = t {
                     return self.get_type(points_to);
                 }
                 else {

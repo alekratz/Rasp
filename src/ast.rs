@@ -19,6 +19,7 @@ impl AST {
             panic!("Tried to add an expression to a non-AST::Expr item");
         }
     }
+    */
 
     pub fn range(&self) -> &Range {
         match self {
@@ -29,7 +30,6 @@ impl AST {
         }
     }
 
-    */
     pub fn identifier(&self) -> &str {
         match self {
             &AST::Identifier(_, ref s) => s,
@@ -37,7 +37,20 @@ impl AST {
         }
     }
 
-    /*
+    pub fn string(&self) -> &str {
+        match self {
+            &AST::StringLit(_, ref s) => s,
+            _ => panic!("Attempted to grab string field from non-string literal"),
+        }
+    }    
+
+    pub fn exprs(&self) -> &Vec<AST> {
+        match self {
+            &AST::Expr(_, ref v) => v,
+            _ => panic!("Attempted to grab expressions field from non-expression"),
+        }
+    }
+
     pub fn is_expr(&self) -> bool {
         match self {
             &AST::Expr(_, _) => true,
@@ -51,7 +64,6 @@ impl AST {
             _ => false,
         }
     }
-    */
 
     pub fn is_identifier(&self) -> bool {
         match self {
