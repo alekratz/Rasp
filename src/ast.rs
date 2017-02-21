@@ -88,6 +88,18 @@ impl AST {
     }
 }
 
+impl Clone for AST {
+    /// Deep-clones an AST object
+    fn clone(&self) -> AST {
+        match self {
+            &AST::Expr(ref r, ref v) => AST::Expr(*r, v.clone()),
+            &AST::StringLit(ref r, ref s) => AST::StringLit(*r, s.clone()),
+            &AST::Identifier(ref r, ref s) => AST::Identifier(*r, s.clone()),
+            &AST::Number(ref r, n) => AST::Number(*r, n),
+        }       
+    }
+}
+
 fn print_spaces(count: i32, f: &mut fmt::Formatter) {
     if count > 0 {
         for _ in 0 .. count { write!(f, " ").unwrap(); }

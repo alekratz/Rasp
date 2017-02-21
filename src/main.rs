@@ -11,6 +11,7 @@ mod ast;
 mod gatherer;
 mod internal;
 mod compiler;
+mod util;
 
 use lexer::Lexer;
 use parser::Parser;
@@ -23,13 +24,10 @@ use ansi_term::{Style, Colour};
 
 use std::env;
 use std::process;
-use std::fs::File;
-use std::io::prelude::*;
 use std::fmt::Display;
 
 struct Config {
     file: String,       // file to compile
-    //verbose: bool,      // automatically sets verbosity of logging to TRACE
     compile_only: bool, // compile only; don't run
     run_only: bool,     // run only; don't compile
 }
@@ -60,15 +58,6 @@ fn parse_args() -> Result<Config, String> {
         ap.parse_args_or_exit();
     }
     Ok(config)
-}
-
-fn read_file(path: &str) -> std::io::Result<String> {
-    let mut source_text = String::new();
-    {
-        let mut file = try!(File::open(path));
-        try!(file.read_to_string(&mut source_text));
-    }
-    Ok(source_text)
 }
 
 fn exit_error<T: Display>(err_str: T) {
@@ -102,6 +91,7 @@ fn main() {
         builder.init().unwrap();
     }
     trace!("Starting up");
+    trace!("Parsing args");
     // parse args
     let config_result = parse_args();
     if let &Err(ref err_str) = &config_result {
@@ -109,15 +99,19 @@ fn main() {
     }
     let config = config_result.unwrap();
     // load file contents
-    let read_result = read_file(&config.file);
+    let read_result = util::read_file(&config.file);
     if let &Err(ref err) = &read_result {
         exit_error(format!("could not read {}: {}", config.file, err));
     }
+    trace!("Load {}", &config.file);
     let source_text = read_result.unwrap();
     // lex
+    trace!("Creating lexer");
     let lexer = Lexer::new(&source_text);
     // parse
+    trace!("Creating parser");
     let mut parser = Parser::new(lexer);
+    trace!("Making AST");
     let parse_result = parser.parse();
     if let Err(ref err_str) = parse_result {
         exit_error(err_str);
@@ -125,7 +119,8 @@ fn main() {
 
     let ast = parse_result.unwrap();
     // compile
-    let mut compiler = Compiler::new(&ast);
+    trace!("Compiling");
+    let mut compiler = Compiler::new(ast);
     let compile_result = compiler.compile();
     if let Err(ref err_str) = compile_result {
         exit_error(err_str);
@@ -133,5 +128,6 @@ fn main() {
     // save compiled file(?)
     // run(?)
     // shut down
+    info!("OK");
     trace!("Clean exit");
 }

@@ -1,21 +1,23 @@
 use ast::AST;
 use internal;
 use internal::Type;
+use lexer;
+use parser;
+use util;
+
+use std::path::Path;
 
 const DEFINE_KEYWORD: &'static str = "&define";
 const EXTERN_KEYWORD: &'static str = "&extern";
 const TYPE_KEYWORD: &'static str = "&type";
+const INCLUDE_KEYWORD: &'static str = "&include";
 
-/*******************************
- * FUNGATHERER
- */
+pub trait Gatherer<T> {
 
-pub trait Gatherer<'a, T: 'a> {
-
-    fn gather(&self, ast: &'a Vec<AST>) -> Result<Vec<T>, String> {
+    fn gather(&self, ast: &mut Vec<AST>) -> Result<Vec<T>, String> {
         let mut items = Vec::new();
         for ast_item in ast {
-            if let &AST::Expr(ref range, ref exprs) = ast_item {
+            if let &mut AST::Expr(ref range, ref mut exprs) = ast_item {
                 match self.visit_exprs(exprs) {
                     Ok(i) => if i.is_some() {
                         items.push(i.unwrap())
@@ -27,7 +29,7 @@ pub trait Gatherer<'a, T: 'a> {
         Ok(items)
     }
 
-    fn visit_exprs(&self, exprs: &'a Vec<AST>) -> Result<Option<T>, String> {
+    fn visit_exprs(&self, exprs: &Vec<AST>) -> Result<Option<T>, String> {
         // Get the first expression, if any
         if exprs.len() == 0 {
             Ok(None)
@@ -48,21 +50,88 @@ pub trait Gatherer<'a, T: 'a> {
         }
     }
 
-    fn visit_expr(&self, exprs: &'a Vec<AST>) -> Result<T, String>;
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<T, String>;
 
     fn keyword(&self) -> &'static str;
 }
 
+/*******************************
+ * INCLUDEGATHERER
+ */
+
+/// Gathers include directives
+pub struct IncludeGatherer;
+impl Gatherer<Vec<AST>> for IncludeGatherer {
+    fn keyword(&self) -> &'static str {
+        INCLUDE_KEYWORD
+    }
+
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<Vec<AST>, String> {
+        if exprs.len() == 1 {
+            return Ok(Vec::new());
+        }
+
+        let mut paths = Vec::new();
+        // ensure all paths are strings
+        let mut index = 1;
+        for path_expr in exprs.iter().skip(1) {
+            if let &AST::StringLit(_, ref p) = path_expr {
+                // add it to the paths list
+                let path = Path::new(p);
+                // ensure all paths exist
+                if !path.exists() {
+                    return Err(format!("included file {} does not exist", path.display()));
+                }
+                // NOTE : This will print illegal index types AND paths in the same loop; makes handling multiple errors a little weird
+                // TODO : error_chain
+                paths.push(path);
+            }
+            else {
+                return Err(format!("item at index {} must be a string literal (got {} instead)", index, path_expr));
+            }
+
+            index += 1;
+        }
+
+        // attempt to compile all paths collected thus far
+        let mut asts = Vec::new();
+        for path in paths {
+            match self.compile_path(path) {
+                Ok(mut a) => asts.append(&mut a),
+                Err(s) => return Err(format!("error from included file {}: {}", path.display(), s)),
+            }
+        }
+        Ok(asts)
+    }
+}
+
+impl IncludeGatherer {
+    /// Utility function that attempts to turn a path into an AST
+    fn compile_path(&self, path: &Path) -> Result<Vec<AST>, String> {
+        // I implore you to find a messier method
+        let file_contents = util::read_file(path.to_str().expect("Got a weird filename"))
+            .expect("Failed to load the file (permissions issues probably)");
+        let mut parser = parser::Parser
+            ::new(lexer::Lexer::new(&file_contents));
+        parser.parse()
+    }
+}
+
+/*******************************
+ * FUNGATHERER
+ */
+
+
 /// Gathers function definitions
 pub struct FunGatherer;
 
-impl<'a> Gatherer<'a, internal::Function<'a>> for FunGatherer {
+impl Gatherer<internal::Function> for FunGatherer {
 
     fn keyword(&self) -> &'static str {
         DEFINE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &'a Vec<AST>) -> Result<internal::Function<'a>, String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function, String> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == DEFINE_KEYWORD);
         if exprs.len() < 3 {
             return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD));
@@ -97,7 +166,7 @@ impl<'a> Gatherer<'a, internal::Function<'a>> for FunGatherer {
 
             let mut body = Vec::new();
             for expr in exprs.iter().skip(start) {
-                 body.push(expr);
+                 body.push(expr.clone());
             }
             Ok(internal::Function::define(name.to_string(), params, docstring, body))
         }
@@ -110,13 +179,13 @@ impl<'a> Gatherer<'a, internal::Function<'a>> for FunGatherer {
 
 pub struct ExternGatherer;
 
-impl<'a> Gatherer<'a, internal::Function<'a>> for ExternGatherer {
+impl Gatherer<internal::Function> for ExternGatherer {
 
     fn keyword(&self) -> &'static str {
         EXTERN_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &'a Vec<AST>) -> Result<internal::Function<'a>, String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function, String> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == EXTERN_KEYWORD );
         if exprs.len() < 3 || exprs.len() > 4 {
             return Err(format!("{kw} must be at least 3 and at most 4 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=EXTERN_KEYWORD));
@@ -158,13 +227,13 @@ impl<'a> Gatherer<'a, internal::Function<'a>> for ExternGatherer {
  */
 pub struct TypeGatherer;
 
-impl<'a> Gatherer<'a, (String, String)> for TypeGatherer {
+impl Gatherer<(String, String)> for TypeGatherer {
 
     fn keyword(&self) -> &'static str {
         TYPE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &'a Vec<AST>) -> Result<(String, String), String> {
+    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String), String> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == TYPE_KEYWORD);
         if exprs.len() != 3 {
             return Err(format!("{kw} must be at exactly 3 items long: I found {} items ({kw} TYPE NEWTYPE)", exprs.len(), kw=TYPE_KEYWORD));
@@ -185,8 +254,8 @@ impl<'a> Gatherer<'a, (String, String)> for TypeGatherer {
     }
 }
 
-impl<'a, 'b> TypeGatherer {
-    pub fn gather_and_link(&self, exprs: &'a Vec<AST>) -> Result<internal::TypeTable, String> {
+impl<'b> TypeGatherer {
+    pub fn gather_and_link(&self, exprs: &mut Vec<AST>) -> Result<internal::TypeTable, String> {
         let mut type_table = internal::TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
         match self.gather(exprs) {
             Ok(type_mappings) => {

@@ -153,20 +153,20 @@ impl TypeTable {
 }
 
 /// A function table.
-pub struct FunTable<'a> {
-    funs: Vec<Function<'a>>,
+pub struct FunTable {
+    funs: Vec<Function>,
 }
 
-impl<'a> FunTable<'a> {
+impl FunTable {
     /// Creates a new table with a vector.
-    pub fn new(funs: Vec<Function<'a>>) -> FunTable<'a> {
+    pub fn new(funs: Vec<Function>) -> FunTable {
         FunTable {
             funs: funs,
         }
     }
     
     /// Appends an entire vector of functions to the table.
-    pub fn append(&mut self, mut funs: Vec<Function<'a>>) {
+    pub fn append(&mut self, mut funs: Vec<Function>) {
         self.funs
             .append(&mut funs);
     }
@@ -199,18 +199,18 @@ impl<'a> FunTable<'a> {
 
 /// Describes a function that has been defined in a program.
 /// If the function is foreign, its body must be empty.
-pub struct Function<'a> {
+pub struct Function {
     pub name: String,
     pub params: Vec<String>,
     pub docstring: String,
-    pub body: Vec<&'a AST>,
+    pub body: Vec<AST>,
     pub foreign: bool,
 }
 
-impl<'a> Function<'a> {
+impl Function {
     /// Creates a new function, with a name, its parameters, its docstring, the body, and whether it's foreign or not.
     /// Note: for now, a foreign function must not contain a body.
-    pub fn new(name: String, params: Vec<String>, docstring: String, body: Vec<&'a AST>, foreign: bool) -> Function<'a> {
+    pub fn new(name: String, params: Vec<String>, docstring: String, body: Vec<AST>, foreign: bool) -> Function {
         assert!(foreign == (foreign && body.len() == 0), "AST body was filled out for a foreign function");
         Function {
             name: name,
@@ -222,12 +222,12 @@ impl<'a> Function<'a> {
     }
 
     /// User-defined function definition shortcut
-    pub fn define(name: String, params: Vec<String>, docstring: String, body: Vec<&'a AST>) -> Function<'a> {
+    pub fn define(name: String, params: Vec<String>, docstring: String, body: Vec<AST>) -> Function {
         Function::new(name, params, docstring, body, false)
     }
 
     /// External function definition shortcut
-    pub fn external(name: String, params: Vec<String>, docstring: String) -> Function<'a> {
+    pub fn external(name: String, params: Vec<String>, docstring: String) -> Function {
         Function::new(name, params, docstring, Vec::new(), true)
     }
 }
