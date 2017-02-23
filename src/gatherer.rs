@@ -3,6 +3,7 @@ use internal;
 use internal::Type;
 use lexer;
 use parser;
+use preprocessor::Preprocessor;
 use util;
 use errors::*;
 
@@ -21,7 +22,7 @@ pub fn is_builtin(keyword: &str) -> bool {
 }
 
 pub trait Gatherer<T> {
-    fn gather(&self, ast: &Vec<AST>) -> Result<Vec<T>> {
+    fn gather(&mut self, ast: &Vec<AST>) -> Result<Vec<T>> {
         let mut items = Vec::new();
 
         for ast_item in ast {
@@ -40,7 +41,7 @@ pub trait Gatherer<T> {
         Ok(items)
     }
 
-    fn visit_exprs(&self, exprs: &Vec<AST>) -> Result<Option<T>> {
+    fn visit_exprs(&mut self, exprs: &Vec<AST>) -> Result<Option<T>> {
         // Get the first expression, if any
         if exprs.len() == 0 {
             return Ok(None);
@@ -60,7 +61,7 @@ pub trait Gatherer<T> {
         Ok(None)
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<T>;
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<T>;
 
     fn keyword(&self) -> &'static str;
 }
@@ -70,13 +71,17 @@ pub trait Gatherer<T> {
  */
 
 /// Gathers include directives
-pub struct IncludeGatherer;
-impl Gatherer<Vec<AST>> for IncludeGatherer {
+pub struct IncludeGatherer<'a> {
+    fun_table: &'a mut internal::FunTable,
+    type_table: &'a mut internal::TypeTable,
+}
+
+impl<'a> Gatherer<Vec<AST>> for IncludeGatherer<'a> {
     fn keyword(&self) -> &'static str {
         INCLUDE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<Vec<AST>> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<Vec<AST>> {
         if exprs.len() == 1 {
             return Ok(Vec::new());
         }
@@ -106,27 +111,52 @@ impl Gatherer<Vec<AST>> for IncludeGatherer {
         // attempt to compile all paths collected thus far
         let mut asts = Vec::new();
         for path in paths {
-            let compile_result = self.compile_path(path);
+            let mut fun_table = internal::FunTable::new(Vec::new());
+            let mut type_table = internal::TypeTable::new(Vec::new());
+            let compile_result = self.compile_path(path, &mut fun_table, &mut type_table);
             if compile_result.is_err() {
                 compile_result.chain_err(|| format!("included file {}", path.display()))?;
             }
             else if let Ok(mut a) = compile_result {
                 asts.append(&mut a);
             }
+            self.fun_table.merge(fun_table);
+            self.type_table.merge(type_table);
         }
         Ok(asts)
     }
 }
 
-impl IncludeGatherer {
+impl<'a> IncludeGatherer<'a> {
+
+    pub fn new(fun_table: &'a mut internal::FunTable, type_table: &'a mut internal::TypeTable) -> IncludeGatherer<'a> {
+        IncludeGatherer {
+            fun_table: fun_table,
+            type_table: type_table,
+        }
+    }
+
     /// Utility function that attempts to turn a path into an AST
-    fn compile_path(&self, path: &Path) -> Result<Vec<AST>> {
+    fn compile_path(&mut self, path: &Path, mut funtbl: &mut internal::FunTable, mut typetbl: &mut internal::TypeTable) -> Result<Vec<AST>> {
         // I implore you to find a messier method
         let file_contents = util::read_file(path.to_str().expect("Got a weird filename"))
             .expect("Failed to load the file (permissions issues probably)");
         let mut parser = parser::Parser
             ::new(lexer::Lexer::new(&file_contents));
-        parser.parse()
+        let parse_result = parser.parse();
+        if parse_result.is_err() {
+            return parse_result;
+        }
+        let mut ast = parse_result.unwrap();
+        // preprocess *this* AST
+        {
+            let mut preprocessor = Preprocessor::new(path.to_str().unwrap(), &mut ast, &mut funtbl, &mut typetbl);
+            let preproc_result = preprocessor.preprocess();
+            if let Err(e) = preproc_result {
+                return Err(e);
+            }
+        }
+        Ok(ast)
     }
 }
 
@@ -144,7 +174,7 @@ impl Gatherer<internal::Function> for FunGatherer {
         DEFINE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<internal::Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == DEFINE_KEYWORD);
         if exprs.len() < 3 {
             return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD)
@@ -200,7 +230,7 @@ impl Gatherer<internal::Function> for ExternGatherer {
         EXTERN_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<internal::Function> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<internal::Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == EXTERN_KEYWORD );
         if exprs.len() < 3 || exprs.len() > 4 {
             return Err(format!("{kw} must be at least 3 and at most 4 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=EXTERN_KEYWORD).into());
@@ -250,7 +280,7 @@ impl Gatherer<(String, String, lexer::Range)> for TypeGatherer {
         TYPE_KEYWORD
     }
 
-    fn visit_expr(&self, exprs: &Vec<AST>) -> Result<(String, String, lexer::Range)> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<(String, String, lexer::Range)> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == TYPE_KEYWORD);
         let start = exprs[0].range()
             .start;
@@ -277,7 +307,7 @@ impl Gatherer<(String, String, lexer::Range)> for TypeGatherer {
 }
 
 impl<'b> TypeGatherer {
-    pub fn gather_and_link(&self, exprs: &Vec<AST>) -> Result<internal::TypeTable> {
+    pub fn gather_and_link(&mut self, exprs: &Vec<AST>) -> Result<internal::TypeTable> {
         let mut type_table = internal::TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
         match self.gather(exprs) {
             Ok(type_mappings) => {

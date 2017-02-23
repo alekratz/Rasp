@@ -172,6 +172,11 @@ impl FunTable {
             .append(&mut funs);
     }
 
+    pub fn merge(&mut self, mut other: FunTable) {
+        self.funs
+            .append(&mut other.funs);
+    }
+
     /// Does a linear search for if a function exists in the table.
     pub fn has_fun(&self, name: &str) -> bool {
         for f in &self.funs {

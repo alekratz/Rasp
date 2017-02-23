@@ -3,31 +3,54 @@ use internal::*;
 use gatherer::*;
 use errors::*;
 
-pub struct Compiler<'a> {
+pub struct Preprocessor<'a, 'b> {
     source_file: &'a str,
-    ast: Vec<AST>,
-    fun_table: FunTable,
-    type_table: TypeTable,
+    ast: &'b mut Vec<AST>,
+    fun_table: &'b mut FunTable,
+    type_table: &'b mut TypeTable,
 }
 
-impl<'a> Compiler<'a> {
-    pub fn new(source_file: &str, ast: Vec<AST>) -> Compiler {
-        Compiler {
+impl<'a, 'b> Preprocessor<'a, 'b> {
+    pub fn new(source_file: &'a str, ast: &'b mut Vec<AST>, fun_table: &'b mut FunTable, 
+                type_table: &'b mut TypeTable) -> Preprocessor<'a, 'b> {
+        Preprocessor {
             source_file: source_file,
             ast: ast,
-            fun_table: FunTable::new(Vec::new()),
-            type_table: TypeTable::new(Vec::new()),
+            fun_table: fun_table,
+            type_table: type_table,
         }
     }
 
-    pub fn compile(&mut self) -> Result<()>{
+    /// Manipulates a given AST based on builtin functions and user-defined macros.
+    /// It completes the following stages:
+    /// * Preprocessing
+    /// * TODO : Macro handling
+    pub fn preprocess(&mut self) -> Result<()>{
+        // preprocess
+        let preprocess_result = self.preprocess_builtins();
+        if let Err(e) = preprocess_result {
+            return Err(e);
+        }
+        // macro handling
+        Ok(())
+    }
+
+    /// Does preprocessing actions on the AST. This involves:
+    /// * Gathering includes
+    /// * Gathering user-defined types
+    /// * Gathering function definitions
+    /// * Gathering external function definitions
+    /// * Removing all AST items that had something gathered from them
+    fn preprocess_builtins(&mut self) -> Result<()> {
         // get includes
         debug!("Gathering includes");
         {
-            let include_gatherer = IncludeGatherer;
-            let include_result = include_gatherer.gather(&self.ast);
+            let include_result = {
+                let mut include_gatherer = IncludeGatherer::new(self.fun_table, self.type_table);
+                include_gatherer.gather(self.ast)
+            };
             if include_result.is_err() {
-                include_result.chain_err(|| format!("in {}", self.source_file))?;
+                include_result.chain_err(|| format!("{}", self.source_file))?;
             }
             else {
                 let asts = include_result.unwrap();
@@ -39,8 +62,8 @@ impl<'a> Compiler<'a> {
         // get types
         debug!("Gathering types");
         {
-            let type_gatherer = TypeGatherer;
-            let type_result = type_gatherer.gather_and_link(&self.ast);
+            let mut type_gatherer = TypeGatherer;
+            let type_result = type_gatherer.gather_and_link(self.ast);
             if let Err(e) = type_result {
                 return Err(e);
             }
@@ -55,8 +78,8 @@ impl<'a> Compiler<'a> {
         // get functions
         debug!("Gathering functions");
         {
-            let fun_gatherer = FunGatherer;
-            let fun_result = fun_gatherer.gather(&self.ast);
+            let mut fun_gatherer = FunGatherer;
+            let fun_result = fun_gatherer.gather(self.ast);
             if let Err(e) = fun_result {
                 return Err(e);
             }
@@ -67,8 +90,8 @@ impl<'a> Compiler<'a> {
         // get externs
         debug!("Gathering extern functions");
         {
-            let extern_gatherer = ExternGatherer;
-            let fun_result = extern_gatherer.gather(&self.ast);
+            let mut extern_gatherer = ExternGatherer;
+            let fun_result = extern_gatherer.gather(self.ast);
 
             if let Err(e) = fun_result {
                 return Err(e);

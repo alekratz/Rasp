@@ -15,8 +15,10 @@ mod parser;
 mod ast;
 mod gatherer;
 mod internal;
-mod compiler;
+mod preprocessor;
 mod util;
+mod vm;
+mod bytecode;
 mod errors {
     // error_chain setup
     error_chain! { }
@@ -24,7 +26,8 @@ mod errors {
 
 use lexer::Lexer;
 use parser::Parser;
-use compiler::Compiler;
+use preprocessor::Preprocessor;
+use internal::{FunTable,TypeTable};
 
 use env_logger::LogBuilder;
 use log::{LogRecord, LogLevelFilter, LogLevel};
@@ -124,23 +127,30 @@ fn main() {
     if let Err(ref err_str) = parse_result {
         exit_error(err_str);
     }
-    let ast = parse_result.unwrap();
+    let mut ast = parse_result.unwrap();
+    let mut fun_table = FunTable::new(Vec::new());
+    let mut type_table = TypeTable::new(Vec::new());
 
-    // compile
-    trace!("Compiling");
-    let mut compiler = Compiler::new(&config.file, ast);
-    let compile_result = compiler.compile();
-    if let Err(ref err_chain) = compile_result {
-        error!("Compile error. Halting.");
-        error!("Error details:");
-        error!("{}", err_chain.iter()
-                    .nth(0)
-                    .unwrap());
-        for err in err_chain.iter().skip(1) {
-            error!("    caused by {}", err);
+    // Preprocess 
+    {
+        trace!("Preprocessing");
+        let mut preprocessor = Preprocessor::new(&config.file, &mut ast, &mut fun_table, &mut type_table);
+        let compile_result = preprocessor.preprocess();
+        if let Err(ref err_chain) = compile_result {
+            error!("Compile error. Halting.");
+            error!("Error details:");
+            error!("Caused by {}", err_chain.iter()
+                   .nth(0)
+                   .unwrap());
+            for err in err_chain.iter().skip(1) {
+                error!("    caused by {}", err);
+            }
+            exit_error("Compilation failed");
         }
-        exit_error("Compilation failed");
     }
+    // Make bytecode
+    let mut to_bytecode = bytecode::ToBytecode::new(&mut fun_table, &mut type_table);
+    let bytecode = to_bytecode.to_bytecode(&ast);
     // save compiled file(?)
     // run(?)
     // shut down
