@@ -1,6 +1,5 @@
 use ast::AST;
-use internal;
-use internal::Type;
+use internal::*;
 use lexer;
 use parser;
 use preprocessor::Preprocessor;
@@ -72,8 +71,8 @@ pub trait Gatherer<T> {
 
 /// Gathers include directives
 pub struct IncludeGatherer<'a> {
-    fun_table: &'a mut internal::FunTable,
-    type_table: &'a mut internal::TypeTable,
+    fun_table: &'a mut FunTable,
+    type_table: &'a mut TypeTable,
 }
 
 impl<'a> Gatherer<Vec<AST>> for IncludeGatherer<'a> {
@@ -111,8 +110,8 @@ impl<'a> Gatherer<Vec<AST>> for IncludeGatherer<'a> {
         // attempt to compile all paths collected thus far
         let mut asts = Vec::new();
         for path in paths {
-            let mut fun_table = internal::FunTable::new(Vec::new());
-            let mut type_table = internal::TypeTable::new(Vec::new());
+            let mut fun_table = FunTable::new(Vec::new());
+            let mut type_table = TypeTable::new(Vec::new());
             let compile_result = self.compile_path(path, &mut fun_table, &mut type_table);
             if compile_result.is_err() {
                 compile_result.chain_err(|| format!("included file {}", path.display()))?;
@@ -129,7 +128,10 @@ impl<'a> Gatherer<Vec<AST>> for IncludeGatherer<'a> {
 
 impl<'a> IncludeGatherer<'a> {
 
-    pub fn new(fun_table: &'a mut internal::FunTable, type_table: &'a mut internal::TypeTable) -> IncludeGatherer<'a> {
+    /// Creates a new IncludeGatherer.
+    /// `fun_table` is a mutable reference to a `FunTable`.
+    /// `type_table` is a mutable reference to a `TypeTable`.
+    pub fn new(fun_table: &'a mut FunTable, type_table: &'a mut TypeTable) -> IncludeGatherer<'a> {
         IncludeGatherer {
             fun_table: fun_table,
             type_table: type_table,
@@ -137,7 +139,7 @@ impl<'a> IncludeGatherer<'a> {
     }
 
     /// Utility function that attempts to turn a path into an AST
-    fn compile_path(&mut self, path: &Path, mut funtbl: &mut internal::FunTable, mut typetbl: &mut internal::TypeTable) -> Result<Vec<AST>> {
+    fn compile_path(&mut self, path: &Path, mut funtbl: &mut FunTable, mut typetbl: &mut TypeTable) -> Result<Vec<AST>> {
         // I implore you to find a messier method
         let file_contents = util::read_file(path.to_str().expect("Got a weird filename"))
             .expect("Failed to load the file (permissions issues probably)");
@@ -168,13 +170,13 @@ impl<'a> IncludeGatherer<'a> {
 /// Gathers function definitions
 pub struct FunGatherer;
 
-impl Gatherer<internal::Function> for FunGatherer {
+impl Gatherer<Function> for FunGatherer {
 
     fn keyword(&self) -> &'static str {
         DEFINE_KEYWORD
     }
 
-    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<internal::Function> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == DEFINE_KEYWORD);
         if exprs.len() < 3 {
             return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD)
@@ -195,7 +197,7 @@ impl Gatherer<internal::Function> for FunGatherer {
             ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
         }
         if exprs.len() == 3 {
-            Ok(internal::Function::define(name.to_string(), params, String::new(), Vec::new()))
+            Ok(Function::define(name.to_string(), params, String::new(), Vec::new()))
         }
         else {
             assert!(exprs.len() >= 4);
@@ -213,7 +215,7 @@ impl Gatherer<internal::Function> for FunGatherer {
             for expr in exprs.iter().skip(start) {
                  body.push(expr.clone());
             }
-            Ok(internal::Function::define(name.to_string(), params, docstring, body))
+            Ok(Function::define(name.to_string(), params, docstring, body))
         }
     }
 }
@@ -224,13 +226,13 @@ impl Gatherer<internal::Function> for FunGatherer {
 
 pub struct ExternGatherer;
 
-impl Gatherer<internal::Function> for ExternGatherer {
+impl Gatherer<Function> for ExternGatherer {
 
     fn keyword(&self) -> &'static str {
         EXTERN_KEYWORD
     }
 
-    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<internal::Function> {
+    fn visit_expr(&mut self, exprs: &Vec<AST>) -> Result<Function> {
         assert!(exprs[0].is_identifier() && exprs[0].identifier() == EXTERN_KEYWORD );
         if exprs.len() < 3 || exprs.len() > 4 {
             return Err(format!("{kw} must be at least 3 and at most 4 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=EXTERN_KEYWORD).into());
@@ -249,7 +251,7 @@ impl Gatherer<internal::Function> for ExternGatherer {
             ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
         }
         if exprs.len() == 3 {
-            Ok(internal::Function::external(name.to_string(), params, String::new()))
+            Ok(Function::external(name.to_string(), params, String::new()))
         }
         else if exprs.len() == 4 {
             let docstring = if let AST::StringLit(_, ref s) = exprs[3] {
@@ -259,7 +261,7 @@ impl Gatherer<internal::Function> for ExternGatherer {
                 return Err(format!("expected string literal for {kw} DOCSTRING, but instead got {}", exprs[3], kw=EXTERN_KEYWORD)
                            .into());
             };
-            Ok(internal::Function::external(name.to_string(), params, docstring))
+            Ok(Function::external(name.to_string(), params, docstring))
         }
         else {
             assert!(exprs.len() > 4);
@@ -307,8 +309,8 @@ impl Gatherer<(String, String, lexer::Range)> for TypeGatherer {
 }
 
 impl<'b> TypeGatherer {
-    pub fn gather_and_link(&mut self, exprs: &Vec<AST>) -> Result<internal::TypeTable> {
-        let mut type_table = internal::TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
+    pub fn gather_and_link(&mut self, exprs: &Vec<AST>) -> Result<TypeTable> {
+        let mut type_table = TypeTable::new(vec![Type::Number, Type::Str, Type::Listy]);
         match self.gather(exprs) {
             Ok(type_mappings) => {
                 let mut proto_types = Vec::new();
