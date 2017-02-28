@@ -1,13 +1,20 @@
 (&include "basic.rasp")
 
 ; Define a function taking one argument
-(&define factorial (x)
-    "Evaluates x! - i.e., x factorial"
-    (if (<= x 1)
-        1
-        (* x (factorial (- x 1)))))
+(&define @factorial (x)
+    "Evaluates x! - i.e., x factorial, on an integer."
+    (if (or (not (is-number x)) (= x (floor x)))
+        (if (<= x 1)
+            1
+            (* x (factorial (- x 1))))
+        (&panic "factorial may only be called on integers")))
 
-(factorial 123)
-(factorial 10)
-(factorial 1.1)
+; Discovers 123! and puts its value on the stack
+;(@factorial 123)
+; Discovers 10! and puts its value on the stack
+;(@factorial 10)
+; This should actually fail. Gotta figure out how to do that :^)
+; (factorial 1.1)
+; (fact 10)
 
+(stdwrite 1 "Hello, world!\n")

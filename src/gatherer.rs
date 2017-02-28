@@ -139,6 +139,8 @@ impl<'a> IncludeGatherer<'a> {
     }
 
     /// Utility function that attempts to turn a path into an AST
+    /// `funtbl` is a mutable reference to a `FunTable`.
+    /// `typetbl` is a mutable reference to a `TypeTable`.
     fn compile_path(&mut self, path: &Path, mut funtbl: &mut FunTable, mut typetbl: &mut TypeTable) -> Result<Vec<AST>> {
         // I implore you to find a messier method
         let file_contents = util::read_file(path.to_str().expect("Got a weird filename"))
@@ -197,7 +199,7 @@ impl Gatherer<Function> for FunGatherer {
             ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
         }
         if exprs.len() == 3 {
-            Ok(Function::define(name.to_string(), params, String::new(), Vec::new()))
+            Ok(Function::new(name.to_string(), params, String::new(), Vec::new()))
         }
         else {
             assert!(exprs.len() >= 4);
@@ -215,11 +217,12 @@ impl Gatherer<Function> for FunGatherer {
             for expr in exprs.iter().skip(start) {
                  body.push(expr.clone());
             }
-            Ok(Function::define(name.to_string(), params, docstring, body))
+            Ok(Function::new(name.to_string(), params, docstring, body))
         }
     }
 }
 
+/*
 /*******************************
  * EXTERNGATHERER
  */
@@ -270,6 +273,7 @@ impl Gatherer<Function> for ExternGatherer {
         }
     }
 }
+*/
 
 /*******************************
  * TYPEGATHERER

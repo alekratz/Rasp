@@ -9,6 +9,9 @@ extern crate ansi_term;
 extern crate time;
 #[macro_use]
 extern crate error_chain;
+extern crate libc;
+#[macro_use]
+extern crate lazy_static;
 
 mod lexer;
 mod parser;
@@ -23,6 +26,7 @@ mod errors {
     // error_chain setup
     error_chain! { }
 }
+mod builtins;
 
 use lexer::Lexer;
 use parser::Parser;
@@ -149,11 +153,49 @@ fn main() {
         }
     }
     // Make bytecode
-    let mut to_bytecode = bytecode::ToBytecode::new(&mut fun_table, &mut type_table);
-    let bytecode = to_bytecode.to_bytecode(&ast);
+    let bytecode = {
+        let mut to_bytecode = bytecode::ToBytecode::new(&mut fun_table, &mut type_table);
+        match to_bytecode.to_bytecode(&ast) {
+            Ok(codez) => codez,
+            Err(err_chain) => {
+                error!("Compile error. Halting.");
+                error!("Error details:");
+                error!("Caused by {}", err_chain.iter()
+                       .nth(0)
+                       .unwrap());
+                for err in err_chain.iter().skip(1) {
+                    error!("    caused by {}", err);
+                }
+                exit_error("Compilation failed");
+                unreachable!()
+            }
+        }
+    };
+
+    // bytecode debug
+    debug!("Here comes the bytecode");
+    for b in &bytecode {
+        debug!("{:?}", b);
+    }
+
     // save compiled file(?)
     // run(?)
+    let mut vma = vm::VM::new(fun_table, type_table);
+    match vma.run(&bytecode) {
+        Ok(()) => info!("OK"),
+        Err(err_chain) => {
+            error!("Runtime error. Halting.");
+            error!("Error details:");
+            error!("Caused by {}", err_chain.iter()
+                   .nth(0)
+                   .unwrap());
+            for err in err_chain.iter().skip(1) {
+                error!("    caused by {}", err);
+            }
+            exit_error("Compilation failed");
+            unreachable!()
+        }
+    }
     // shut down
-    info!("OK");
     trace!("Clean exit");
 }

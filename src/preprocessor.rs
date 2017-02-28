@@ -87,6 +87,7 @@ impl<'a, 'b> Preprocessor<'a, 'b> {
             self.fun_table
                 .append(funs);
         }
+        /*
         // get externs
         debug!("Gathering extern functions");
         {
@@ -100,6 +101,7 @@ impl<'a, 'b> Preprocessor<'a, 'b> {
             self.fun_table
                 .append(funs);
         }
+        */
         self.fun_table
             .dump_debug();
 

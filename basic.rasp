@@ -31,20 +31,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TYPEDEFS
 
-; Handles are just ints with fancy names
-(&type :int :handle)
-
 ; Watch the compiler fail, uncomment this line
 ; (&type :bad_type :other_bad_type)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; EXTERN FUNCTIONS
-
-(&extern @read (hdl :handle)
-    "Wraps the libc read(int) function.")
-
-(&extern @write (hdl :handle str :string)
-    "Wraps the libc write(int, int) function.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; UTILITY FUNCTIONS
@@ -53,21 +41,21 @@
     "Finds the reverse of a listy object"
     (if (nil? l)
         nil
-        (&append (@reverse (&cdr l)) (&list (&car l)))))
+        (append (@reverse (cdr l)) (list (car l)))))
 
 (&define @len (s :listy)
     "Finds the length of a listy object"
     (if (nil? s)
         0
-        (+ 1 (@len (&cdr s)))))
+        (+ 1 (@len (cdr s)))))
 
 (&define @sublist-start (s :listy start :int)
     "Finds a sublist from a given start"
     (if (= start 0)
         s
     (if (= start 1)
-        (&cdr s)
-        (@sublist (&cdr s) (- start 1)))))
+        (cdr s)
+        (@sublist (cdr s) (- start 1)))))
 
 (&define @sublist-length (s :listy len :int)
     "Trims a string down to a given length"

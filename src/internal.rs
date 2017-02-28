@@ -187,6 +187,20 @@ impl FunTable {
         false
     }
 
+    pub fn get_fun(&self, name: &str) -> Option<&Function> {
+        if !self.has_fun(name) {
+            None
+        }
+        else {
+            for f in &self.funs {
+                if name == f.name {
+                    return Some(f);
+                }
+            }
+            unreachable!()
+        }
+    }
+
     /// Dumps debug information about all functions in the table.
     pub fn dump_debug(&self) {
         for fun in &self.funs {
@@ -194,46 +208,31 @@ impl FunTable {
             debug!("name: {}", fun.name);
             debug!("params: {:?}", fun.params);
             debug!("docstring: {}", fun.docstring);
-            debug!("foreign: {}", fun.foreign);
-            if !fun.foreign {
-                debug!("body: {} items", fun.body.len());
-            }
         }
         debug!("--------------------------------------------------------------------------------");
+    }
+
+    pub fn push(&mut self, fun: Function) {
+        self.funs.push(fun);
     }
 }
 
 /// Describes a function that has been defined in a program.
-/// If the function is foreign, its body must be empty.
 pub struct Function {
     pub name: String,
     pub params: Vec<String>,
     pub docstring: String,
     pub body: Vec<AST>,
-    pub foreign: bool,
 }
 
 impl Function {
-    /// Creates a new function, with a name, its parameters, its docstring, the body, and whether it's foreign or not.
-    /// Note: for now, a foreign function must not contain a body.
-    pub fn new(name: String, params: Vec<String>, docstring: String, body: Vec<AST>, foreign: bool) -> Function {
-        assert!(foreign == (foreign && body.len() == 0), "AST body was filled out for a foreign function");
+    /// Creates a new function, with a name, its parameters, its docstring, and the body.
+    pub fn new(name: String, params: Vec<String>, docstring: String, body: Vec<AST>) -> Function {
         Function {
             name: name,
             params: params,
             docstring: docstring,
             body: body,
-            foreign: foreign,
         }
-    }
-
-    /// User-defined function definition shortcut
-    pub fn define(name: String, params: Vec<String>, docstring: String, body: Vec<AST>) -> Function {
-        Function::new(name, params, docstring, body, false)
-    }
-
-    /// External function definition shortcut
-    pub fn external(name: String, params: Vec<String>, docstring: String) -> Function {
-        Function::new(name, params, docstring, Vec::new(), true)
     }
 }

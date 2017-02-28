@@ -5,7 +5,7 @@
     "Formats a string using the % character"
     (if (= (@len fmt) 0)
         ""
-        (&match (@first fmt)
+        (match (@first fmt)
             ('%
                 (+ (@string item) (@format (@sublist fmt 1) ... tail)))
             (c
