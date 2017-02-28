@@ -1,7 +1,7 @@
 ;
 ; String manipulation functions
 
-(&define @format (fmt :string ? item ... tail)
+(&define @format (fmt :string ? item tail ...)
     "Formats a string using the % character"
     (if (= (@len fmt) 0)
         ""

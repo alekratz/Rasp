@@ -4,9 +4,37 @@ use errors::*;
 const INT_TYPE: &'static str = ":int";
 const STRING_TYPE: &'static str = ":string";
 const LISTY_TYPE: &'static str = ":listy";
+const ANY_TYPE: &'static str = ":any";
+
+#[derive(Debug)]
+pub struct Param  {
+    name: String,
+    param_type: Type,
+    optional: bool,
+    varargs: bool,
+}
+
+impl Param {
+    pub fn new(name: String, param_type: Type, optional: bool, varargs: bool) -> Param {
+        Param {
+            name: name,
+            param_type: param_type,
+            optional: optional,
+            varargs: varargs,
+        }
+    }
+    
+    pub fn from_type(name: String, param_type: Type, optional: bool) -> Param {
+        Param::new(name, param_type, optional, false)
+    }
+
+    pub fn any(name: String, optional: bool) -> Param {
+        Param::new(name, Type::Any, optional, false)
+    }
+}
 
 /// Defines an internal type.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Type {
     /// A number
     Number,
@@ -14,6 +42,8 @@ pub enum Type {
     Listy,
     /// A string
     Str,
+    /// An "any" type - this is a catchall
+    Any,
     // A user-defined type
     // UserDefined(String),
     /// A typedef
@@ -44,6 +74,7 @@ impl Type {
             &Type::Listy => LISTY_TYPE,
             &Type::Str => STRING_TYPE,
             &Type::TypeDef(ref name, _) => name,
+            &Type::Any => ANY_TYPE,
         }
     }
 
@@ -140,6 +171,7 @@ impl TypeTable {
                 &Type::Number => debug!("type: number"),
                 &Type::Str => debug!("type: string"),
                 &Type::Listy => debug!("type: listy"),
+                &Type::Any => debug!("type: any"),
                 &Type::TypeDef(ref from, _) => {
                     let to = self.get_type(from)
                         .unwrap()
@@ -220,14 +252,14 @@ impl FunTable {
 /// Describes a function that has been defined in a program.
 pub struct Function {
     pub name: String,
-    pub params: Vec<String>,
+    pub params: Vec<Param>,
     pub docstring: String,
     pub body: Vec<AST>,
 }
 
 impl Function {
     /// Creates a new function, with a name, its parameters, its docstring, and the body.
-    pub fn new(name: String, params: Vec<String>, docstring: String, body: Vec<AST>) -> Function {
+    pub fn new(name: String, params: Vec<Param>, docstring: String, body: Vec<AST>) -> Function {
         Function {
             name: name,
             params: params,

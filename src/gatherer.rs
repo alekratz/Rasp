@@ -12,6 +12,7 @@ const DEFINE_KEYWORD: &'static str = "&define";
 const EXTERN_KEYWORD: &'static str = "&extern";
 const TYPE_KEYWORD: &'static str = "&type";
 const INCLUDE_KEYWORD: &'static str = "&include";
+const OPTIONAL_TOKEN: &'static str = "?";
 
 pub fn is_builtin(keyword: &str) -> bool {
     keyword == DEFINE_KEYWORD   ||
@@ -170,9 +171,82 @@ impl<'a> IncludeGatherer<'a> {
 
 
 /// Gathers function definitions
-pub struct FunGatherer;
+pub struct FunGatherer<'a> {
+    type_table: &'a TypeTable,
+}
 
-impl Gatherer<Function> for FunGatherer {
+impl<'a> FunGatherer<'a> {
+    pub fn new(type_table: &'a TypeTable) -> FunGatherer<'a> {
+        FunGatherer {
+            type_table: type_table,
+        }
+    }
+
+    fn get_params(&self, expr_list: &Vec<AST>) -> Result<Vec<Param>> {
+        let mut params = Vec::new();
+
+        let limit = expr_list.len();
+        let mut i = 0;
+        let mut optional = false;
+
+        loop {
+            if i >= limit {
+                break;
+            }
+
+            let ref name_expr = expr_list[i];
+            if !name_expr.is_identifier() {
+                return Err(format!("expected identifier in params list, but instead got a {} token",
+                                   name_expr).into())
+            }
+            let name = name_expr.identifier();
+            // check special names
+            if name == OPTIONAL_TOKEN {
+                if optional {
+                    return Err(format!("only one `{}' token is allowed in parameter declarations", OPTIONAL_TOKEN).into());
+                }
+                else {
+                    optional = true;
+                }
+            }
+            else {
+                let param = if i + 1 == limit {
+                    // last item
+                    Param::any(name.to_string(), optional)
+                }
+                else {
+                    i += 1;
+                    let ref next_expr = expr_list[i];
+                    if !next_expr.is_identifier() {
+                        return Err(format!("expected identifier in params list, but instead got a {} token",
+                                           next_expr).into())
+                    }
+
+                    if let Some(typ) = self.type_table.get_type(next_expr.identifier()) {
+                        // defined type
+                        Param::from_type(name.to_string(), typ.clone(), optional)
+                    }
+                    else if next_expr.identifier() == "..." {
+                        // varargs parameter
+                        if i + 1 < limit {
+                            return Err("varargs token should be the last parameter in a function parameter list".into());
+                        }
+                        Param::new(name.to_string(), Type::Any, optional, true)
+                    }
+                    else {
+                        i -= 1;
+                        Param::any(name.to_string(), optional)
+                    }
+                };
+                params.push(param);
+            }
+            i += 1;
+        }
+        Ok(params)
+    }
+}
+
+impl<'a> Gatherer<Function> for FunGatherer<'a> {
 
     fn keyword(&self) -> &'static str {
         DEFINE_KEYWORD
@@ -184,20 +258,16 @@ impl Gatherer<Function> for FunGatherer {
             return Err(format!("{kw} must be at least 3 items long: I found {} items ({kw} NAME (PARAMS) ... )", exprs.len(), kw=DEFINE_KEYWORD)
                        .into());
         }
+
         let name = exprs[1].identifier();
-        let mut params = Vec::new();
-        match &exprs[2] {
-            &AST::Expr(_, ref expr_list) => {
-                for e in expr_list {
-                    match e {
-                        &AST::Identifier(_, ref s) => params.push(s.to_string()),
-                        ref t => return Err(format!("expected identifier in params list, but instead got a {} item", t)
-                                            .into()),
-                    }
-                }
+        let params = match &exprs[2] {
+            &AST::Expr(ref r, ref expr_list) => match self.get_params(expr_list) {
+                Ok(params) => params,
+                e => e.chain_err(|| format!("{}", r))?,
             },
             ref t => return Err(format!("expected params list, but instead got a {} item", t).into()),
-        }
+        };
+
         if exprs.len() == 3 {
             Ok(Function::new(name.to_string(), params, String::new(), Vec::new()))
         }

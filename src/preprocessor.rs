@@ -78,7 +78,7 @@ impl<'a, 'b> Preprocessor<'a, 'b> {
         // get functions
         debug!("Gathering functions");
         {
-            let mut fun_gatherer = FunGatherer;
+            let mut fun_gatherer = FunGatherer::new(self.type_table);
             let fun_result = fun_gatherer.gather(self.ast);
             if let Err(e) = fun_result {
                 return Err(e);
