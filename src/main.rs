@@ -128,8 +128,15 @@ fn main() {
     let mut parser = Parser::new(lexer);
     trace!("Making AST");
     let parse_result = parser.parse();
-    if let Err(ref err_str) = parse_result {
-        exit_error(err_str);
+    if let Err(ref err_chain) = parse_result {
+        error!("Parse error. Halting.");
+        error!("Caused by {}", err_chain.iter()
+               .nth(0)
+               .unwrap());
+        for err in err_chain.iter().skip(1) {
+            error!("    caused by {}", err);
+        }
+        exit_error("Compilation failed");
     }
     let mut ast = parse_result.unwrap();
     let mut fun_table = FunTable::new(Vec::new());
@@ -142,7 +149,6 @@ fn main() {
         let compile_result = preprocessor.preprocess();
         if let Err(ref err_chain) = compile_result {
             error!("Compile error. Halting.");
-            error!("Error details:");
             error!("Caused by {}", err_chain.iter()
                    .nth(0)
                    .unwrap());
@@ -159,7 +165,6 @@ fn main() {
             Ok(codez) => codez,
             Err(err_chain) => {
                 error!("Compile error. Halting.");
-                error!("Error details:");
                 error!("Caused by {}", err_chain.iter()
                        .nth(0)
                        .unwrap());
@@ -184,16 +189,40 @@ fn main() {
     match vma.run(&bytecode) {
         Ok(()) => info!("OK"),
         Err(err_chain) => {
+            use lexer::Range;
             error!("Runtime error. Halting.");
-            error!("Error details:");
             error!("Caused by {}", err_chain.iter()
                    .nth(0)
                    .unwrap());
             for err in err_chain.iter().skip(1) {
                 error!("    caused by {}", err);
             }
-            exit_error("Compilation failed");
-            unreachable!()
+            error!("Function stack:");
+            let mut count = vma.fun_stack()
+                .len();
+            for fname in vma.fun_stack() {
+                if vma.fun_table().has_fun(&fname) {
+                    let fun = vma.fun_table()
+                        .get_fun(fname)
+                        .expect(format!("Double fault: attempted to get details of function `{}' but it did not exist", fname).as_str());
+                    let first = fun.body
+                        .first()
+                        .expect("Double fault: exception occurred in a function, but that function doesn't have a body")
+                        .range();
+                    let last = fun.body
+                        .last()
+                        .expect("Double fault: exception occurred in a function, but that function doesn't have a body")
+                        .range();
+                    let range = Range::new(first.start, last.end);
+                    error!("    {:02}. {} (defined in \"{}\" at {})", count, fname, fun.source_file, range);
+                }
+                else {
+                    error!("    {:02}. {} (BUILTIN)", count, fname);
+                }
+                count -= 1;
+            }
+            // pedantic information
+            vma.dump_debug();
         }
     }
     // shut down

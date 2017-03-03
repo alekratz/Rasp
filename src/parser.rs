@@ -71,7 +71,11 @@ impl<'a> Parser<'a> {
                 let mut exprs = Vec::new();
                 self.next();
                 // the next token may not be an expression start; it may just be an rparen
-                while self.is_expr_start() {
+                while self.is_expr_start() || self.current_tok.is_comment() {
+                    if self.current_tok.is_comment() {
+                        self.next();
+                        continue;
+                    }
                     let expr_result = self.expr();
                     if expr_result.is_err() {
                         expr_result.chain_err(|| "invalid expression")?;

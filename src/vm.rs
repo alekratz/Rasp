@@ -9,10 +9,19 @@ use std::collections::HashMap;
 /// Represents a run-time value
 #[derive(Clone, Debug)]
 pub enum Value {
+    /// A string value.
     String(String),
+    /// A numeric value.
     Number(f64),
+    /// An identifier. This may be treated as a reference in the future.
     Identifier(String),
-    List(Vec<Box<Value>>),
+    /// A list.
+    List(Vec<Value>),
+    Boolean(bool),
+    /// A special VM value that delimits the start of a varargs value to a function call.
+    StartArgs,
+    /// A special VM value that delimits the end of a varargs value to a function call.
+    EndArgs,
 }
 
 impl Value {
@@ -50,6 +59,20 @@ impl Value {
             _ => panic!("called number() on non-Number vm::Value"),
         }
     }
+
+    pub fn is_start_args(&self) -> bool {
+        match self {
+            &Value::StartArgs => true,
+            _ => false,
+        }
+    }
+    
+    pub fn is_end_args(&self) -> bool {
+        match self {
+            &Value::EndArgs => true,
+            _ => false,
+        }
+    }
 }
 
 type ValueStack = Vec<Value>;
@@ -63,6 +86,7 @@ pub struct VM {
     type_table: TypeTable,
     /// Cache of functions' compiled Bytecode
     fun_bytecode: HashMap<String, Vec<Bytecode>>,
+    fun_stack: Vec<String>,
 }
 
 impl VM {
@@ -73,13 +97,22 @@ impl VM {
             fun_table: fun_table,
             type_table: type_table,
             fun_bytecode: HashMap::new(),
+            fun_stack: Vec::new(),
         }
     }
 
     pub fn run(&mut self, bytecode: &Vec<Bytecode>) -> Result<()>{
+        let mut skip = 0usize;
         self.var_stack
             .push(VarTable::new());
         for b in bytecode {
+            if skip > 0 {
+                skip -= 1;
+                trace!("skipping {:?}", b);
+                continue;
+            }
+            trace!("executing {:?}", b);
+            trace!("value stack: {:?}", self.value_stack);
             match b {
                 &Bytecode::Call(ref fname) => {
                     if self.has_function(fname) {
@@ -100,12 +133,17 @@ impl VM {
                             .get(fname)
                             .unwrap()
                             .clone();
+                        self.fun_stack.push(fname.to_string());
+                        // TODO: extra error message
                         self.run(&bytecode)?;
+                        self.fun_stack.pop();
                     }
                     else if BUILTIN_FUNCTIONS.contains_key(fname.as_str()) {
+                        self.fun_stack.push(fname.to_string());
                         let builtin = BUILTIN_FUNCTIONS.get(fname.as_str())
                             .unwrap();
-                        builtin(self);
+                        builtin(self)?;
+                        self.fun_stack.pop();
                     }
                     else {
                         return Err(format!("unknown function {}", fname).into());
@@ -114,7 +152,7 @@ impl VM {
                 &Bytecode::Push(ref value) => match value {
                     // TODO(alek): references
                     &Value::Identifier(ref name) => {
-                        let value = { 
+                        let value = {
                             match self.get_var(name) {
                                 Some(v) => v.clone(),
                                 None => return Err(format!("unknown identifier {}", name).into()),
@@ -127,18 +165,40 @@ impl VM {
                             .push(v.clone()),
                 },
                 &Bytecode::Pop(ref name) => {
-                    self.value_stack
+                    let value = self.value_stack
                         .pop()
                         .expect("attempted to pop a value off of an empty stack");
+                    self.set_var(name, &value);
                 },
                 &Bytecode::Load(ref name) => {
                     let value = match self.get_var(name) {
                         Some(value) => value,
                         None => return Err(format!("unknown variable or function name: {}", name).into()),
                     }.clone();
-                    self.push(value);
+                    self.value_stack.push(value);
                 },
                 &Bytecode::Store(ref name, ref value) => self.set_var(name, value),
+                &Bytecode::NewVarStack => self.var_stack.push(VarTable::new()),
+                &Bytecode::PopVarStack => { 
+                    self.var_stack.pop()
+                        .expect("tried to pop variable table stack but there was nothing on the stack");
+                },
+                &Bytecode::Skip(n) => skip = n,
+                &Bytecode::SkipFalse(n) => match self.pop_value() {
+                    Value::Number(num) => if num == 0.0 {
+                        skip = n;
+                    },
+                    Value::String(s) => if s.len() == 0 {
+                        skip = n;
+                    },
+                    Value::List(l) => if l.len() == 0 {
+                        skip = n;
+                    },
+                    Value::Boolean(t) => if !t {
+                        skip = n;
+                    },
+                    e => return Err(format!("VM error: invalid boolean value reached (got {:?})", e).into()),
+                },
             }
         }
         self.var_stack
@@ -147,15 +207,60 @@ impl VM {
         Ok(())
     }
 
+    pub fn fun_stack(&self) -> &Vec<String> {
+        &self.fun_stack
+    }
+
+    pub fn fun_table(&self) -> &FunTable {
+        &self.fun_table
+    }
+
     pub fn push(&mut self, value: Value) {
         self.value_stack
             .push(value);
     }
 
     pub fn pop_value(&mut self) -> Value {
+        if self.value_stack.len() == 0 {
+            // we know a crash is going to happen
+            self.dump_debug();
+        }
         self.value_stack
             .pop()
             .expect("attempted to pop a value off of an empty value stack")
+    }
+
+    pub fn peek_value(&self) -> Option<&Value> {
+        if self.value_stack.len() == 0 {
+            None
+        }
+        else {
+            Some(&self.value_stack[self.value_stack.len() - 1])
+        }
+    }
+
+    pub fn dump_debug(&self) {
+        let mut count = self.value_stack
+            .len();
+        debug!("--------------------------------------------------------------------------------");
+        debug!("Value stack");
+        for value in &self.value_stack {
+            debug!("    {:02}. {:?}", count, value);
+            count -= 1;
+        }
+        debug!("--------------------------------------------------------------------------------");
+        count = self.var_stack
+            .len();
+        for table in &self.var_stack {
+            let mut table_count = table.len();
+            debug!("{:02}. Var table", count);
+            for (key, value) in table {
+                debug!("   {:02}. {} -> {:?}", table_count, key, value); 
+                table_count -= 1;
+            }
+            count -= 1;
+            debug!("--------------------------------------------------------------------------------");
+        }
     }
 
     fn get_var(&self, name: &str) -> Option<&Value> {
@@ -175,7 +280,11 @@ impl VM {
     }
 
     fn compile_function(&self, fun: &Function) -> Result<Vec<Bytecode>>{ 
-        let bytecode = {
+        let mut prelude = Vec::new();
+        for ref param in &fun.params {
+            prelude.push(Bytecode::Pop(param.name.clone()));
+        }
+        let mut bytecode = {
             let mut generator = ToBytecode::new(&self.fun_table, &self.type_table);
             match generator.to_bytecode(&fun.body) {
                 Ok(b) => b,
@@ -185,7 +294,14 @@ impl VM {
                 },
             }
         };
-        Ok(bytecode)
+        prelude.append(&mut bytecode);
+        debug!("--------------------------------------------------------------------------------");
+        debug!("Compiled code for {}", fun.name);
+        for ref p in &prelude {
+            debug!("{:?}", p);
+        }
+        debug!("--------------------------------------------------------------------------------");
+        Ok(prelude)
     }
 
     /// Gets if we have a defined function either defined in the fun_table or in bytecode.

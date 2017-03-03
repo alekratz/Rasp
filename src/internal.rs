@@ -8,10 +8,10 @@ const ANY_TYPE: &'static str = ":any";
 
 #[derive(Debug)]
 pub struct Param  {
-    name: String,
-    param_type: Type,
-    optional: bool,
-    varargs: bool,
+    pub name: String,
+    pub param_type: Type,
+    pub optional: bool,
+    pub varargs: bool,
 }
 
 impl Param {
@@ -255,16 +255,18 @@ pub struct Function {
     pub params: Vec<Param>,
     pub docstring: String,
     pub body: Vec<AST>,
+    pub source_file: String,
 }
 
 impl Function {
     /// Creates a new function, with a name, its parameters, its docstring, and the body.
-    pub fn new(name: String, params: Vec<Param>, docstring: String, body: Vec<AST>) -> Function {
+    pub fn new(name: String, params: Vec<Param>, docstring: String, body: Vec<AST>, source_file: &str) -> Function {
         Function {
             name: name,
             params: params,
             docstring: docstring,
             body: body,
+            source_file: source_file.to_string(),
         }
     }
 }

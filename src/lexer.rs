@@ -41,6 +41,13 @@ impl Token {
         }
     }
 
+    pub fn is_comment(&self) -> bool {
+        match self {
+            &Token::Comment(_, _) => true,
+            _ => false,
+        }
+    }
+
     /*
     pub fn is_lparen(&self) -> bool {
         match self {

@@ -172,12 +172,14 @@ impl<'a> IncludeGatherer<'a> {
 
 /// Gathers function definitions
 pub struct FunGatherer<'a> {
+    source_file: &'a str,
     type_table: &'a TypeTable,
 }
 
 impl<'a> FunGatherer<'a> {
-    pub fn new(type_table: &'a TypeTable) -> FunGatherer<'a> {
+    pub fn new(source_file: &'a str, type_table: &'a TypeTable) -> FunGatherer<'a> {
         FunGatherer {
+            source_file: source_file,
             type_table: type_table,
         }
     }
@@ -269,7 +271,7 @@ impl<'a> Gatherer<Function> for FunGatherer<'a> {
         };
 
         if exprs.len() == 3 {
-            Ok(Function::new(name.to_string(), params, String::new(), Vec::new()))
+            Ok(Function::new(name.to_string(), params, String::new(), Vec::new(), self.source_file))
         }
         else {
             assert!(exprs.len() >= 4);
@@ -287,7 +289,7 @@ impl<'a> Gatherer<Function> for FunGatherer<'a> {
             for expr in exprs.iter().skip(start) {
                  body.push(expr.clone());
             }
-            Ok(Function::new(name.to_string(), params, docstring, body))
+            Ok(Function::new(name.to_string(), params, docstring, body, self.source_file))
         }
     }
 }

@@ -2,6 +2,7 @@ use ast::AST;
 use vm::Value;
 use internal::*;
 use errors::*;
+use builtins::BUILTIN_FUNCTIONS;
 
 #[derive(Clone, Debug)]
 pub enum Bytecode {
@@ -18,6 +19,14 @@ pub enum Bytecode {
     Load(String),
     /// Stores a given value in a variable value
     Store(String, Value),
+    /// Special VM bytecode for creating a new variable stack
+    NewVarStack,
+    /// Special VM bytecode for forcing popping off a variable stack
+    PopVarStack,
+    /// Special VM bytecode for skipping N instructions unconditionally
+    Skip(usize),
+    /// Special VM bytecode that pops a value off the stack and skips N instructions if the value is falsy
+    SkipFalse(usize),
 }
 
 pub struct ToBytecode<'a> {
@@ -35,7 +44,7 @@ impl<'a> ToBytecode<'a> {
     }
 
     /// Converts an abstract syntax tree to bytecode.
-    pub fn to_bytecode(&mut self, ast: &Vec<AST>) -> Result<Vec<Bytecode>> {
+    pub fn to_bytecode(&self, ast: &Vec<AST>) -> Result<Vec<Bytecode>> {
         let mut code = Vec::new();
         for expr in ast {
             match expr {
@@ -47,11 +56,9 @@ impl<'a> ToBytecode<'a> {
                         },
                     }
                 },
-                &AST::StringLit(_, ref s) => 
-                    code.push(Bytecode::Push(Value::String(s.to_string()))),
-                &AST::Identifier(_, ref s) => { },
-                &AST::Number(_, n) => 
-                    code.push(Bytecode::Push(Value::Number(n))),
+                &AST::StringLit(_, ref s) => code.push(Bytecode::Push(Value::String(s.to_string()))),
+                &AST::Identifier(_, ref s) => code.push(Bytecode::Load(s.to_string())),
+                &AST::Number(_, n) => code.push(Bytecode::Push(Value::Number(n))),
             }
         }
         Ok(code)
@@ -64,6 +71,7 @@ impl<'a> ToBytecode<'a> {
         let exprs = expr.exprs();
         if exprs.len() == 0 {
             // push empty list
+            codez.push(Bytecode::Push(Value::List(Vec::new())));
         }
         else {
             let ref first = exprs[0];
@@ -74,31 +82,61 @@ impl<'a> ToBytecode<'a> {
                     return Err("attempt to call expression as a function (not yet supported)".into()),
                 // honestly, just treat string literals as identifiers in this context
                 &AST::StringLit(ref r, ref name) | &AST::Identifier(ref r, ref name) => {
-                    // TODO(alek): if we're going to check that a function exists, then we
-                    //             want to do this all the way down. Either catch it *all* at
-                    //             compile time, or check *none* of it at compile time.
-                    /*
-                    if !self.fun_table.has_fun(name) {
-                        return Err(format!("attempt to call non-existent function `{}'", name).into());
-                    }
-                    */
-                    for arg in exprs.iter().skip(1) {
-                        match arg {
-                            &AST::Expr(ref r, _) => {
-                                match self.expr_to_bytecode(arg) {
-                                    Ok(mut inner_codez) => codez.append(&mut inner_codez),
-                                    e => return e.chain_err(|| format!("{}", r)),
-                                }
-                            },
-                            &AST::Number(_, n) =>
-                                codez.push(Bytecode::Push(Value::Number(n))),
-                            &AST::StringLit(_, ref s) =>
-                                codez.push(Bytecode::Push(Value::String(s.clone()))),
-                            &AST::Identifier(_, ref s) =>
-                                codez.push(Bytecode::Load(s.clone())),
+                    if name == "let" {
+                        match self.let_builtin(expr) {
+                            Ok(mut inner) => codez.append(&mut inner),
+                            e => {
+                                e.chain_err(|| format!("{}", r))?;
+                            }
                         }
                     }
-                    codez.push(Bytecode::Call(name.to_string()));
+                    else if name == "list" {
+                        match self.list_builtin(expr) {
+                            Ok(mut inner) => codez.append(&mut inner),
+                            e => {
+                                e.chain_err(|| format!("{}", r))?;
+                            }
+                        }
+                    }
+                    else if name == "if" {
+                        match self.if_builtin(expr) {
+                            Ok(mut inner) => codez.append(&mut inner),
+                            e => {
+                                e.chain_err(|| format!("{}", r))?;
+                            }
+                        }
+                    }
+                    else if !self.fun_table.has_fun(name) && !BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
+                        return Err(format!("attempt to call non-existent function `{}'", name).into());
+                    }
+                    else {
+                        let mut count = 0;
+                        for arg in exprs.iter().skip(1) {
+                            count += 1;
+                            match arg {
+                                &AST::Expr(ref r, _) => {
+                                    match self.expr_to_bytecode(arg) {
+                                        Ok(mut inner_codez) => codez.append(&mut inner_codez),
+                                        e => return e.chain_err(|| format!("{}", r)),
+                                    }
+                                },
+                                &AST::Number(_, n) =>
+                                    codez.push(Bytecode::Push(Value::Number(n))),
+                                &AST::StringLit(_, ref s) =>
+                                    codez.push(Bytecode::Push(Value::String(s.clone()))),
+                                &AST::Identifier(_, ref s) =>
+                                    codez.push(Bytecode::Load(s.clone())),
+                            }
+                        }
+                        if !BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
+                            self.check_valid_argument_count(name, count)
+                                .chain_err(|| format!("{}", r))?;
+                        }
+                        else {
+                            // TODO : Check args for builtin functions
+                        }
+                        codez.push(Bytecode::Call(name.to_string()));
+                    }
                 },
                 // if it's a number, throw an error;
                 &AST::Number(_, _) =>
@@ -106,6 +144,143 @@ impl<'a> ToBytecode<'a> {
             }
         }
         Ok(codez)
+    }
+
+    fn check_valid_argument_count(&self, fname: &str, argcount: usize) -> Result<()> {
+        let fun = self.fun_table
+            .get_fun(fname)
+            .expect("Checking argument count of invalid function");
+        let ref params = fun.params;
+        let mut arg_index = argcount;
+        for ref param in &fun.params {
+            if arg_index == 0 {
+                return Err(format!("invalid number of arguments (got {}) for function {}", argcount, fun.name)
+                           .into());
+            }
+            else if param.optional {
+                arg_index -= 1;
+            }
+            else if param.varargs {
+                break;
+            }
+            else {
+                arg_index -= 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn let_builtin(&self, ast: &AST) -> Result<Vec<Bytecode>> {
+        assert!(ast.is_expr());
+        let exprs = ast.exprs();
+        let ref first = exprs[0];
+        let ref setz = exprs[1];
+        let the_rest = exprs
+            .iter()
+            .skip(2)
+            .map(|x| x.clone())
+            .collect::<Vec<AST>>();
+        if !first.is_identifier() {
+            Err("let function must be called as an identifier".into())
+        }
+        else if !setz.is_expr() {
+            Err("second argument of let function must be a list".into())
+        }
+        else {
+            let mut codez = Vec::new();
+            assert!(first.identifier() == "let");
+            codez.push(Bytecode::NewVarStack);
+            for set in setz.exprs() {
+                if !set.is_expr() || set.exprs().len() != 2 {
+                    return Err("assignments must be a list of two items".into())
+                }
+                let assign = set.exprs();
+                if !assign[0].is_identifier() {
+                    return Err(format!("assignments name must be an identifier, instead got {}", assign[0]).into());
+                }
+                codez.push(Bytecode::Store(assign[0].identifier().to_string(), assign[1].to_value()));
+            }
+            match self.to_bytecode(&the_rest) {
+                Ok(mut inner_codez) => codez.append(&mut inner_codez),
+                e => return e,
+            }
+            codez.push(Bytecode::PopVarStack);
+            Ok(codez)
+        }
+    }
+
+    fn list_builtin(&self, ast: &AST) -> Result<Vec<Bytecode>> {
+        assert!(ast.is_expr());
+        let exprs = ast.exprs();
+        let ref first = exprs[0];
+        if !first.is_identifier() {
+            Err("list function must be called as an identifier".into())
+        }
+        else {
+            assert!(first.identifier() == "list");
+            let the_rest = exprs
+                .iter()
+                .skip(1)
+                .map(|x| x.clone())
+                .rev()
+                .collect::<Vec<AST>>();
+            let mut codez = Vec::new();
+            codez.push(Bytecode::Push(Value::EndArgs));
+            match self.to_bytecode(&the_rest) {
+                Ok(mut l) => codez.append(&mut l),
+                e => return e.chain_err(|| "list function call"),
+            }
+            codez.push(Bytecode::Push(Value::StartArgs));
+            codez.push(Bytecode::Call("list".to_string()));
+            Ok(codez)
+        }
+    }
+
+
+    fn if_builtin(&self, ast: &AST) -> Result<Vec<Bytecode>> {
+        assert!(ast.is_expr());
+        let exprs = ast.exprs();
+        let ref first = exprs[0];
+        if !first.is_identifier() {
+            Err("if function must be called as an identifier".into())
+        }
+        else {
+            assert!(first.identifier() == "if");
+            let the_rest = exprs
+                .iter()
+                .skip(1)
+                .map(|x| x.clone())
+                .collect::<Vec<AST>>();
+            if the_rest.len() != 3 {
+                Err(format!("if function requires exactly 3 arguments, got {} instead", the_rest.len()).into())
+            }
+            else {
+                let first = exprs[1].clone();
+                let second = exprs[2].clone();
+                let third = exprs[3].clone();
+
+                let mut codez = Vec::new();
+                let mut first_codez = match self.to_bytecode(&vec![first]) {
+                    Ok(mut l) => l,
+                    e => return e.chain_err(|| "condition of if function call"),
+                };
+                let mut second_codez = match self.to_bytecode(&vec![second]) {
+                    Ok(mut l) => l,
+                    e => return e.chain_err(|| "first expression of if function call"),
+                };
+                let mut third_codez = match self.to_bytecode(&vec![third]) {
+                    Ok(mut l) => l,
+                    e => return e.chain_err(|| "first expression of if function call"),
+                };
+
+                codez.append(&mut first_codez);
+                codez.push(Bytecode::SkipFalse(second_codez.len() + 1));
+                codez.append(&mut second_codez);
+                codez.push(Bytecode::Skip(third_codez.len()));
+                codez.append(&mut third_codez);
+                Ok(codez)
+            }
+        }
     }
 }
 

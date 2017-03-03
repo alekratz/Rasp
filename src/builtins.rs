@@ -23,8 +23,184 @@ lazy_static! {
         map.insert("stdclose", rasp_close as fn(&mut vm::VM) -> Result<()>);
         map.insert("stdwrite", rasp_write as fn(&mut vm::VM) -> Result<()>);
         map.insert("stdread", rasp_read as fn(&mut vm::VM) -> Result<()>);
+
+        map.insert("+", plus as fn(&mut vm::VM) -> Result<()>);
+        map.insert("-", minus as fn(&mut vm::VM) -> Result<()>);
+        map.insert("*", times as fn(&mut vm::VM) -> Result<()>);
+        map.insert("/", divide as fn(&mut vm::VM) -> Result<()>);
+
+        map.insert("car", car as fn(&mut vm::VM) -> Result<()>);
+        map.insert("cdr", cdr as fn(&mut vm::VM) -> Result<()>);
+        map.insert("nil?", is_nil as fn(&mut vm::VM) -> Result<()>);
+        map.insert("list", list as fn(&mut vm::VM) -> Result<()>);
         map
     };
+}
+
+/*
+/// Builtin list function
+/// The list function takes n parameters and makes a list out of those parameters.
+pub fn list(v: &mut vm::VM) -> Result<()> {
+    Ok(())
+}
+*/
+
+/// Builtin list function
+/// Gets whether a given listy item is empty.
+pub fn list(v: &mut vm::VM) -> Result<()> {
+    {
+        let first = v.pop_value();
+        assert!(first.is_start_args());
+    }
+    let mut result_list = Vec::new();
+    loop {
+        if v.peek_value().is_some() {
+            let value = v.pop_value();
+            if value.is_end_args() {
+                break;
+            }
+            else {
+                result_list.push(value);
+            }
+        }
+        else {
+            return Err("VM error: unexpected end of value stack when popping var args".into());
+        }
+    }
+    v.push(vm::Value::List(result_list));
+    Ok(())
+}
+
+/// Builtin nil? function
+/// Gets whether a given listy item is empty.
+pub fn is_nil(v: &mut vm::VM) -> Result<()> {
+    let first = v.pop_value();
+    if first.is_listy() {
+        match first {
+            vm::Value::String(s) => v.push(vm::Value::Boolean(s.len() == 0)),
+            vm::Value::List(l) => v.push(vm::Value::Boolean(l.len() == 0)),
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+    else {
+        Err(format!("argument to `nil?' function must be listy").into())
+    }
+}
+
+/// Builtin cdr function
+/// Gets a list, minus the first item.
+pub fn cdr(v: &mut vm::VM) -> Result<()> {
+    let first = v.pop_value();
+    if first.is_listy() {
+        match first {
+            vm::Value::String(s) => if s.len() > 0 {
+                    v.push(vm::Value::String(s.chars().skip(1).collect()));
+                }
+                else {
+                    v.push(vm::Value::List(Vec::new()));
+                },
+            vm::Value::List(l) => if l.len() > 0 {
+                    let e = l.into_iter()
+                        .skip(1)
+                        .collect();
+                    v.push(vm::Value::List(e));
+                }
+                else {
+                    v.push(vm::Value::List(Vec::new()));
+                },
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+    else {
+        Err(format!("argument to `cdr' function must be listy").into())
+    }
+}
+
+/// Builtin car function
+/// Gets the first element of a list.
+pub fn car(v: &mut vm::VM) -> Result<()> {
+    let first = v.pop_value();
+    if first.is_listy() {
+        match first {
+            vm::Value::String(s) => if let Some(c) = s.chars().nth(0) {
+                    let mut c_str = String::new();
+                    c_str.push(c);
+                    v.push(vm::Value::String(c_str));
+                }
+                else {
+                    v.push(vm::Value::List(Vec::new()));
+                },
+            vm::Value::List(l) => if l.len() > 0 {
+                    let e = l.into_iter()
+                        .nth(0)
+                        .unwrap();
+                    v.push(e);
+                }
+                else {
+                    v.push(vm::Value::List(Vec::new()));
+                },
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+    else {
+        Err(format!("argument to `car' function must be listy").into())
+    }
+}
+
+/// Builtin + function
+/// The plus function takes two numbers.
+pub fn plus(v: &mut vm::VM) -> Result<()> {
+    let right_val = v.pop_value();
+    let left_val = v.pop_value();
+    if !left_val.is_number() || !right_val.is_number() {
+        Err("+ function may only be used on numbers".into())
+    }
+    else {
+        Ok(v.push(vm::Value::Number(left_val.number() + right_val.number())))
+    }
+}
+
+/// Builtin - function
+/// The minus function takes two numbers.
+pub fn minus(v: &mut vm::VM) -> Result<()> {
+    // TODO : allow using this function to make single expressions negative?
+    let right_val = v.pop_value();
+    let left_val = v.pop_value();
+    if !left_val.is_number() || !right_val.is_number() {
+        Err("- function may only be used on numbers".into())
+    }
+    else {
+        Ok(v.push(vm::Value::Number(left_val.number() - right_val.number())))
+    }
+}
+
+/// Builtin * function
+/// The times function takes two numbers.
+pub fn times(v: &mut vm::VM) -> Result<()> {
+    let right_val = v.pop_value();
+    let left_val = v.pop_value();
+    if !left_val.is_number() || !right_val.is_number() {
+        Err("* function may only be used on numbers".into())
+    }
+    else {
+        Ok(v.push(vm::Value::Number(left_val.number() * right_val.number())))
+    }
+}
+
+/// Builtin / function
+/// The divide function takes two numbers.
+pub fn divide(v: &mut vm::VM) -> Result<()> {
+    let right_val = v.pop_value();
+    let left_val = v.pop_value();
+    if !left_val.is_number() || !right_val.is_number() {
+        Err("/ function may only be used on numbers".into())
+    }
+    else {
+        Ok(v.push(vm::Value::Number(left_val.number() / right_val.number())))
+    }
 }
 
 /// Builtin function for opening files.
@@ -55,8 +231,7 @@ pub fn rasp_open(v: &mut vm::VM) -> Result<()> {
         let fd = unsafe {
             open(CString::new(path).unwrap().as_ptr(), open_flags, 0o644)
         };
-        v.push(vm::Value::Number(fd as f64));
-        Ok(())
+        Ok(v.push(vm::Value::Number(fd as f64)))
     }
 }
 
@@ -155,6 +330,7 @@ pub fn rasp_read(v: &mut vm::VM) -> Result<()> {
                     .unwrap();
                 read(fd, buffer_cstr.as_ptr() as *mut c_void, count)
             };
+            // TODO: push list of contents and result on the stack
             Ok(())
         }
     }

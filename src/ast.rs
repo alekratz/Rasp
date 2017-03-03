@@ -1,6 +1,8 @@
 use lexer::Range;
+use vm::Value;
 use std::fmt;
 
+#[derive(Debug)]
 pub enum AST {
     Expr(Range, Vec<AST>),
     StringLit(Range, String),
@@ -20,6 +22,17 @@ impl AST {
         }
     }
     */
+
+    pub fn to_value(&self) -> Value {
+        match self {
+            &AST::Expr(_, ref exprs) => Value::List(exprs.iter()
+                                                    .map(|x| x.to_value())
+                                                    .collect()),
+            &AST::StringLit(_, ref s) => Value::String(s.to_string()),
+            &AST::Identifier(_, ref i) => Value::Identifier(i.to_string()),
+            &AST::Number(_, n) => Value::Number(n),
+        }
+    }
 
     pub fn range(&self) -> &Range {
         match self {
