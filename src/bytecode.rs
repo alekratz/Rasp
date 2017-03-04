@@ -48,7 +48,7 @@ impl<'a> ToBytecode<'a> {
         let mut code = Vec::new();
         for expr in ast {
             match expr {
-                &AST::Expr(ref r, ref v) => {
+                &AST::Expr(ref r, _) => {
                     match self.expr_to_bytecode(expr) {
                         Ok(mut codez) => code.append(&mut codez),
                         e => { // braces necessary because of some rust weirdness
@@ -150,7 +150,6 @@ impl<'a> ToBytecode<'a> {
         let fun = self.fun_table
             .get_fun(fname)
             .expect("Checking argument count of invalid function");
-        let ref params = fun.params;
         let mut arg_index = argcount;
         for ref param in &fun.params {
             if arg_index == 0 && !(param.optional || param.varargs) {
@@ -275,15 +274,15 @@ impl<'a> ToBytecode<'a> {
 
                 let mut codez = Vec::new();
                 let mut first_codez = match self.to_bytecode(&vec![first]) {
-                    Ok(mut l) => l,
+                    Ok(l) => l,
                     e => return e.chain_err(|| "condition of if function call"),
                 };
                 let mut second_codez = match self.to_bytecode(&vec![second]) {
-                    Ok(mut l) => l,
+                    Ok(l) => l,
                     e => return e.chain_err(|| "first expression of if function call"),
                 };
                 let mut third_codez = match self.to_bytecode(&vec![third]) {
-                    Ok(mut l) => l,
+                    Ok(l) => l,
                     e => return e.chain_err(|| "first expression of if function call"),
                 };
 

@@ -160,7 +160,7 @@ fn main() {
     }
     // Make bytecode
     let bytecode = {
-        let mut to_bytecode = bytecode::ToBytecode::new(&mut fun_table, &mut type_table);
+        let to_bytecode = bytecode::ToBytecode::new(&mut fun_table, &mut type_table);
         match to_bytecode.to_bytecode(&ast) {
             Ok(codez) => codez,
             Err(err_chain) => {

@@ -50,12 +50,14 @@ impl AST {
         }
     }
 
+    /*
     pub fn string(&self) -> &str {
         match self {
             &AST::StringLit(_, ref s) => s,
             _ => panic!("Attempted to grab string field from non-string literal"),
         }
     }    
+    */
 
     pub fn exprs(&self) -> &Vec<AST> {
         match self {
@@ -71,12 +73,14 @@ impl AST {
         }
     }
 
+    /*
     pub fn is_stringlit(&self) -> bool {
         match self {
             &AST::StringLit(_, _) => true,
             _ => false,
         }
     }
+    */
 
     pub fn is_identifier(&self) -> bool {
         match self {

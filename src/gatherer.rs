@@ -121,7 +121,7 @@ impl<'a> Gatherer<Vec<AST>> for IncludeGatherer<'a> {
                 asts.append(&mut a);
             }
             self.fun_table.merge(fun_table);
-            self.type_table.merge(type_table);
+            self.type_table.merge(type_table)?;
         }
         Ok(asts)
     }

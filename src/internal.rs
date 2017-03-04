@@ -61,12 +61,14 @@ impl Type {
         }
     }
 
+    /*
     pub fn is_primitive(&self) -> bool {
         match self {
             &Type::Number | &Type::Listy | &Type::Str => true,
             _ => false,
         }
     }
+    */
 
     pub fn name(&self) -> &str {
         match self {
@@ -244,9 +246,11 @@ impl FunTable {
         debug!("--------------------------------------------------------------------------------");
     }
 
+    /*
     pub fn push(&mut self, fun: Function) {
         self.funs.push(fun);
     }
+    */
 }
 
 /// Describes a function that has been defined in a program.

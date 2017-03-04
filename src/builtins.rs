@@ -390,12 +390,18 @@ pub fn rasp_read(v: &mut vm::VM) -> Result<()> {
             let count = count_num as usize;
             let mut buffer_vec = Vec::new();
             buffer_vec.resize(count, 0 as u8);
+            let buffer_cstr = CString::new(buffer_vec)
+                .unwrap();
             let result = unsafe {
-                let mut buffer_cstr = CString::new(buffer_vec)
-                    .unwrap();
                 read(fd, buffer_cstr.as_ptr() as *mut c_void, count)
             };
-            // TODO: push list of contents and result on the stack
+            let result_vec = buffer_cstr.into_bytes()
+                .into_iter()
+                .map(|x| vm::Value::Number(x as f64))
+                .collect();
+            v.push(vm::Value::List(vec![
+                                   vm::Value::Number(result as f64),
+                                   vm::Value::List(result_vec)]));
             Ok(())
         }
     }

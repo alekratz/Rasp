@@ -1,4 +1,3 @@
-use ast::AST;
 use internal::{FunTable, TypeTable, Function};
 use bytecode::{ToBytecode, Bytecode};
 use errors::*;
@@ -61,17 +60,19 @@ impl Value {
 
     pub fn is_number(&self) -> bool {
         match self {
-            &Value::Number(n) => true,
+            &Value::Number(_) => true,
             _ => false,
         }
     }
 
+    /*
     pub fn list(&self) -> &Vec<Value> {
         match self {
             &Value::List(ref v) => v,
             _ => panic!("called list() on non-List vm::Value"),
         }
     }
+    */
 
     pub fn into_list(self) -> Vec<Value> {
         match self {
@@ -101,12 +102,14 @@ impl Value {
         }
     }
 
+    /*
     pub fn is_start_args(&self) -> bool {
         match self {
             &Value::StartArgs(_) => true,
             _ => false,
         }
     }
+    */
     
     pub fn is_end_args(&self) -> bool {
         match self {
@@ -326,7 +329,7 @@ impl VM {
             prelude.push(Bytecode::Pop(param.name.clone()));
         }
         let mut bytecode = {
-            let mut generator = ToBytecode::new(&self.fun_table, &self.type_table);
+            let generator = ToBytecode::new(&self.fun_table, &self.type_table);
             match generator.to_bytecode(&fun.body) {
                 Ok(b) => b,
                 e => { 
