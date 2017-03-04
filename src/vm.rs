@@ -7,7 +7,7 @@ use builtins::BUILTIN_FUNCTIONS;
 use std::collections::HashMap;
 
 /// Represents a run-time value
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum Value {
     /// A string value.
     String(String),
@@ -19,15 +19,35 @@ pub enum Value {
     List(Vec<Value>),
     Boolean(bool),
     /// A special VM value that delimits the start of a varargs value to a function call.
-    StartArgs,
+    /// The value contains the number of instructions before the EndArgs.
+    StartArgs(i64),
     /// A special VM value that delimits the end of a varargs value to a function call.
     EndArgs,
 }
 
 impl Value {
+    pub fn type_str(&self) -> &'static str {
+        match self {
+            &Value::String(_) => "string",
+            &Value::List(_) => "list",
+            &Value::Number(_) => "number",
+            &Value::Identifier(_) => "identifier",
+            &Value::Boolean(_) => "boolean",
+            &Value::StartArgs(_) => "startargs",
+            &Value::EndArgs => "endargs",
+        }
+    }
+
     pub fn is_listy(&self) -> bool {
         match self {
             &Value::String(_) | &Value::List(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_list(&self) -> bool {
+        match self {
+            &Value::List(_) => true,
             _ => false,
         }
     }
@@ -46,6 +66,20 @@ impl Value {
         }
     }
 
+    pub fn list(&self) -> &Vec<Value> {
+        match self {
+            &Value::List(ref v) => v,
+            _ => panic!("called list() on non-List vm::Value"),
+        }
+    }
+
+    pub fn into_list(self) -> Vec<Value> {
+        match self {
+            Value::List(v) => v,
+            _ => panic!("called into_list() on non-List vm::Value"),
+        }
+    }
+
     pub fn string(&self) -> &str {
         match self {
             &Value::String(ref s) => s.as_str(),
@@ -59,10 +93,17 @@ impl Value {
             _ => panic!("called number() on non-Number vm::Value"),
         }
     }
+    
+    pub fn start_args(&self) -> i64 {
+        match self {
+            &Value::StartArgs(n) => n,
+            _ => panic!("called start_args() on non-StartArgs vm::Value"),
+        }
+    }
 
     pub fn is_start_args(&self) -> bool {
         match self {
-            &Value::StartArgs => true,
+            &Value::StartArgs(_) => true,
             _ => false,
         }
     }

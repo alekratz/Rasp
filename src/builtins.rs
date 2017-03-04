@@ -33,6 +33,10 @@ lazy_static! {
         map.insert("cdr", cdr as fn(&mut vm::VM) -> Result<()>);
         map.insert("nil?", is_nil as fn(&mut vm::VM) -> Result<()>);
         map.insert("list", list as fn(&mut vm::VM) -> Result<()>);
+        map.insert("append", append as fn(&mut vm::VM) -> Result<()>);
+        map.insert("string", string as fn(&mut vm::VM) -> Result<()>);
+        
+        map.insert("=", equals as fn(&mut vm::VM) -> Result<()>);
         map
     };
 }
@@ -45,15 +49,74 @@ pub fn list(v: &mut vm::VM) -> Result<()> {
 }
 */
 
+/// Builtin string function
+/// Converts the top item to a string
+pub fn string(v: &mut vm::VM) -> Result<()> {
+    let item = v.pop_value();
+    v.push(vm::Value::String(value_to_string(item)));
+    Ok(())
+}
+
+/// Auxiliary function that turns a list into a string.
+fn value_to_string(val: vm::Value) -> String {
+    match val {
+        vm::Value::String(s) => s,
+        vm::Value::Number(n) => n.to_string(),
+        vm::Value::Identifier(s) => s,
+        vm::Value::Boolean(b) => b.to_string(),
+        vm::Value::List(l) => {
+            let mut constructed = String::new();
+            for i in l {
+                constructed += &value_to_string(i);
+            }
+            constructed
+        },
+        _ => unreachable!(),
+    }
+}
+
+/// Builtin append function
+/// Puts the top two items on the stack together.
+pub fn append(v: &mut vm::VM) -> Result<()> {
+    let first = v.pop_value();
+    let second = v.pop_value();
+    if !first.is_listy() || !second.is_listy() {
+        Err("append takes only listy items".into())
+    }
+    else if first.is_list() != second.is_list() {
+        Err("append arguments either must be both Lists or Strings".into())
+    }
+    else if first.is_list() {
+        assert!(second.is_list());
+        let mut list_start = second.into_list();
+        let mut list_end = first.into_list();
+        list_start.append(&mut list_end);
+        v.push(vm::Value::List(list_start));
+        Ok(())
+    }
+    else {
+        assert!(second.is_string() && first.is_string());
+        v.push(vm::Value::String(second.string().to_string() + first.string()));
+        Ok(())
+    }
+}
+
+/// Builtin = function
+/// Gets whether two items are equal to one another
+pub fn equals(v: &mut vm::VM) -> Result<()> {
+    let first = v.pop_value();
+    let second = v.pop_value();
+    v.push(vm::Value::Boolean(first == second));
+    Ok(())
+}
+
 /// Builtin list function
 /// Gets whether a given listy item is empty.
 pub fn list(v: &mut vm::VM) -> Result<()> {
-    {
-        let first = v.pop_value();
-        assert!(first.is_start_args());
-    }
+    let mut arg_count = v.pop_value()
+        .start_args();
     let mut result_list = Vec::new();
-    loop {
+    while arg_count >= 0 {
         if v.peek_value().is_some() {
             let value = v.pop_value();
             if value.is_end_args() {
@@ -66,6 +129,7 @@ pub fn list(v: &mut vm::VM) -> Result<()> {
         else {
             return Err("VM error: unexpected end of value stack when popping var args".into());
         }
+        arg_count -= 1;
     }
     v.push(vm::Value::List(result_list));
     Ok(())
@@ -84,7 +148,8 @@ pub fn is_nil(v: &mut vm::VM) -> Result<()> {
         Ok(())
     }
     else {
-        Err(format!("argument to `nil?' function must be listy").into())
+        debug!("{:?}", first);
+        Err(format!("argument to `nil?' function must be listy (instead got {})", first.type_str()).into())
     }
 }
 
@@ -98,7 +163,7 @@ pub fn cdr(v: &mut vm::VM) -> Result<()> {
                     v.push(vm::Value::String(s.chars().skip(1).collect()));
                 }
                 else {
-                    v.push(vm::Value::List(Vec::new()));
+                    v.push(vm::Value::String(String::new()));
                 },
             vm::Value::List(l) => if l.len() > 0 {
                     let e = l.into_iter()
@@ -127,10 +192,10 @@ pub fn car(v: &mut vm::VM) -> Result<()> {
             vm::Value::String(s) => if let Some(c) = s.chars().nth(0) {
                     let mut c_str = String::new();
                     c_str.push(c);
-                    v.push(vm::Value::String(c_str));
+                    v.push(vm::Value::String(c.to_string()));
                 }
                 else {
-                    v.push(vm::Value::List(Vec::new()));
+                    v.push(vm::Value::String(String::new()));
                 },
             vm::Value::List(l) => if l.len() > 0 {
                     let e = l.into_iter()

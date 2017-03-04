@@ -128,12 +128,12 @@ impl<'a> ToBytecode<'a> {
                                     codez.push(Bytecode::Load(s.clone())),
                             }
                         }
-                        if !BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
-                            self.check_valid_argument_count(name, count)
-                                .chain_err(|| format!("{}", r))?;
+                        if BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
+                            // TODO(alek): Check args for builtin functions
                         }
                         else {
-                            // TODO : Check args for builtin functions
+                            self.check_valid_argument_count(name, count)
+                                .chain_err(|| format!("{}", r))?;
                         }
                         codez.push(Bytecode::Call(name.to_string()));
                     }
@@ -153,12 +153,12 @@ impl<'a> ToBytecode<'a> {
         let ref params = fun.params;
         let mut arg_index = argcount;
         for ref param in &fun.params {
-            if arg_index == 0 {
+            if arg_index == 0 && !(param.optional || param.varargs) {
                 return Err(format!("invalid number of arguments (got {}) for function {}", argcount, fun.name)
                            .into());
             }
             else if param.optional {
-                arg_index -= 1;
+                continue;
             }
             else if param.varargs {
                 break;
@@ -195,10 +195,23 @@ impl<'a> ToBytecode<'a> {
                     return Err("assignments must be a list of two items".into())
                 }
                 let assign = set.exprs();
-                if !assign[0].is_identifier() {
+                if assign.len() != 2 {
+                    return Err("assignments must be exactly two items long".into())
+                }
+                else if !assign[0].is_identifier() {
                     return Err(format!("assignments name must be an identifier, instead got {}", assign[0]).into());
                 }
-                codez.push(Bytecode::Store(assign[0].identifier().to_string(), assign[1].to_value()));
+                // handles function calls
+                if assign[1].is_expr() {
+                    match self.expr_to_bytecode(&assign[1]) {
+                        Ok(mut v) => codez.append(&mut v),
+                        e => return e.chain_err(|| "invalid function call"),
+                    }
+                    codez.push(Bytecode::Pop(assign[0].identifier().to_string()));
+                }
+                else {
+                    codez.push(Bytecode::Store(assign[0].identifier().to_string(), assign[1].to_value()));
+                }
             }
             match self.to_bytecode(&the_rest) {
                 Ok(mut inner_codez) => codez.append(&mut inner_codez),
@@ -230,7 +243,8 @@ impl<'a> ToBytecode<'a> {
                 Ok(mut l) => codez.append(&mut l),
                 e => return e.chain_err(|| "list function call"),
             }
-            codez.push(Bytecode::Push(Value::StartArgs));
+            let size = (codez.len() - 1) as i64;
+            codez.push(Bytecode::Push(Value::StartArgs(size)));
             codez.push(Bytecode::Call("list".to_string()));
             Ok(codez)
         }
