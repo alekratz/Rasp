@@ -1,4 +1,4 @@
-use internal::{FunTable, TypeTable, Function};
+use internal::{FunTable, TypeTable, Function, Type};
 use bytecode::{ToBytecode, Bytecode};
 use errors::*;
 use builtins::BUILTIN_FUNCTIONS;
@@ -158,7 +158,7 @@ impl VM {
             trace!("executing {:?}", b);
             trace!("value stack: {:?}", self.value_stack);
             match b {
-                &Bytecode::Call(ref fname) => {
+                &Bytecode::Call(ref fname, arg_count) => {
                     if self.has_function(fname) {
                         if !self.has_compiled_function(fname) {
                             let fun = self.fun_table
@@ -178,6 +178,35 @@ impl VM {
                             .unwrap()
                             .clone();
                         self.fun_stack.push(fname.to_string());
+                        let fun = self.fun_table
+                            .get_fun(fname)
+                            .unwrap()
+                            .clone();
+                        debug!("popping {} args", arg_count);
+                        for arg_index in 0 .. arg_count {
+                            trace!("popping arg {}", arg_index + 1);
+                            let arg = self.pop_value();
+                            let ref param_name = fun.params[arg_index]
+                                .name;
+                            self.set_var(param_name, &arg);
+                        }
+                        let extras = fun.params.len() - arg_count;
+                        for arg_index in 0 .. extras {
+                            let ref param = fun.params[extras + arg_index];
+                            let default_value = {
+                                let base_type = self.type_table
+                                    .get_type(param.param_type.name())
+                                    .expect("could not get type that was retrieved from a function");
+                                match base_type {
+                                    &Type::Number => Value::Number(0.0),
+                                    &Type::Str => Value::String(String::new()),
+                                    &Type::Any | &Type::Listy => Value::List(vec![]),
+                                    &Type::TypeDef(_, _) => panic!("Reached typedef as base type when deducing default values"),
+                                }
+                            };
+                            self.set_var(&param.name, &default_value);
+                        }
+
                         // TODO: extra error message
                         self.run(&bytecode)?;
                         self.fun_stack.pop();
@@ -324,10 +353,12 @@ impl VM {
     }
 
     fn compile_function(&self, fun: &Function) -> Result<Vec<Bytecode>>{ 
+        /*
         let mut prelude = Vec::new();
         for ref param in &fun.params {
             prelude.push(Bytecode::Pop(param.name.clone()));
         }
+        */
         let mut bytecode = {
             let generator = ToBytecode::new(&self.fun_table, &self.type_table);
             match generator.to_bytecode(&fun.body) {
@@ -338,14 +369,14 @@ impl VM {
                 },
             }
         };
-        prelude.append(&mut bytecode);
+        //prelude.append(&mut bytecode);
         debug!("--------------------------------------------------------------------------------");
         debug!("Compiled code for {}", fun.name);
-        for ref p in &prelude {
+        for ref p in &bytecode {
             debug!("{:?}", p);
         }
         debug!("--------------------------------------------------------------------------------");
-        Ok(prelude)
+        Ok(bytecode)
     }
 
     /// Gets if we have a defined function either defined in the fun_table or in bytecode.

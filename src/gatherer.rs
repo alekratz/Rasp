@@ -226,14 +226,7 @@ impl<'a> FunGatherer<'a> {
 
                     if let Some(typ) = self.type_table.get_type(next_expr.identifier()) {
                         // defined type
-                        Param::from_type(name.to_string(), typ.clone(), optional)
-                    }
-                    else if next_expr.identifier() == "..." {
-                        // varargs parameter
-                        if i + 1 < limit {
-                            return Err("varargs token should be the last parameter in a function parameter list".into());
-                        }
-                        Param::new(name.to_string(), Type::Any, optional, true)
+                        Param::new(name.to_string(), typ.clone(), optional)
                     }
                     else {
                         i -= 1;

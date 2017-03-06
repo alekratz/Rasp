@@ -141,8 +141,8 @@ pub fn is_nil(v: &mut vm::VM) -> Result<()> {
     let first = v.pop_value();
     if first.is_listy() {
         match first {
-            vm::Value::String(s) => v.push(vm::Value::Boolean(s.len() == 0)),
-            vm::Value::List(l) => v.push(vm::Value::Boolean(l.len() == 0)),
+            vm::Value::String(ref s) => v.push(vm::Value::Boolean(s.len() == 0)),
+            vm::Value::List(ref l) => v.push(vm::Value::Boolean(l.len() == 0)),
             _ => unreachable!(),
         }
         Ok(())

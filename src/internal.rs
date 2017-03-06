@@ -1,35 +1,29 @@
 use ast::AST;
 use errors::*;
 
-const INT_TYPE: &'static str = ":int";
-const STRING_TYPE: &'static str = ":string";
-const LISTY_TYPE: &'static str = ":listy";
-const ANY_TYPE: &'static str = ":any";
+pub const INT_TYPE: &'static str = ":int";
+pub const STRING_TYPE: &'static str = ":string";
+pub const LISTY_TYPE: &'static str = ":listy";
+pub const ANY_TYPE: &'static str = ":any";
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Param  {
     pub name: String,
     pub param_type: Type,
     pub optional: bool,
-    pub varargs: bool,
 }
 
 impl Param {
-    pub fn new(name: String, param_type: Type, optional: bool, varargs: bool) -> Param {
+    pub fn new(name: String, param_type: Type, optional: bool) -> Param {
         Param {
             name: name,
             param_type: param_type,
             optional: optional,
-            varargs: varargs,
         }
-    }
-    
-    pub fn from_type(name: String, param_type: Type, optional: bool) -> Param {
-        Param::new(name, param_type, optional, false)
     }
 
     pub fn any(name: String, optional: bool) -> Param {
-        Param::new(name, Type::Any, optional, false)
+        Param::new(name, Type::Any, optional)
     }
 }
 
@@ -254,6 +248,7 @@ impl FunTable {
 }
 
 /// Describes a function that has been defined in a program.
+#[derive(Clone)]
 pub struct Function {
     pub name: String,
     pub params: Vec<Param>,

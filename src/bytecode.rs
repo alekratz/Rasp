@@ -8,7 +8,7 @@ use builtins::BUILTIN_FUNCTIONS;
 pub enum Bytecode {
     //Nop,
     /// Calls a function with the given parameters.
-    Call(String),
+    Call(String, usize),
     /// Pushes a value onto the current stack frame.
     Push(Value),
     /// Pops a value off of the stack into a variable name
@@ -111,31 +111,67 @@ impl<'a> ToBytecode<'a> {
                     }
                     else {
                         let mut count = 0;
-                        for arg in exprs.iter().skip(1) {
-                            count += 1;
-                            match arg {
-                                &AST::Expr(ref r, _) => {
+                        let args = exprs.into_iter()
+                            .skip(1)
+                            .collect::<Vec<&AST>>();
+                        let arg_count = args.len();
+                        if BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
+                            // TODO(alek): Check args for builtin functions
+                            for arg in args {
+                                count += 1;
+                                if arg.is_expr() {
                                     match self.expr_to_bytecode(arg) {
                                         Ok(mut inner_codez) => codez.append(&mut inner_codez),
                                         e => return e.chain_err(|| format!("{}", r)),
                                     }
-                                },
-                                &AST::Number(_, n) =>
-                                    codez.push(Bytecode::Push(Value::Number(n))),
-                                &AST::StringLit(_, ref s) =>
-                                    codez.push(Bytecode::Push(Value::String(s.clone()))),
-                                &AST::Identifier(_, ref s) =>
-                                    codez.push(Bytecode::Load(s.clone())),
+                                }
+                                else if arg.is_identifier() {
+                                    codez.push(Bytecode::Load(arg.identifier().to_string()));
+                                }
+                                else {
+                                    codez.push(Bytecode::Push(arg.to_value()));
+                                }
                             }
                         }
-                        if BUILTIN_FUNCTIONS.contains_key(name.as_str()) {
-                            // TODO(alek): Check args for builtin functions
-                        }
                         else {
-                            self.check_valid_argument_count(name, count)
-                                .chain_err(|| format!("{}", r))?;
+                            let fun = self.fun_table
+                                .get_fun(name)
+                                .unwrap();
+                            let min_args = self.min_function_args(&fun);
+                            let max_args = self.max_function_args(&fun);
+                            if arg_count > max_args || arg_count < min_args {
+                                return if max_args == min_args {
+                                    Err(format!("no variant of function {} takes {} arguments (takes exactly {} arguments)", 
+                                                fun.name, arg_count, min_args).into())
+                                }
+                                else {
+                                    Err(format!("no variant of function {} takes {} arguments (takes {} to {} arguments)", 
+                                                fun.name, arg_count, min_args, max_args).into())
+                                }
+                            }
+
+                            let mut arg_index = 0;
+                            loop {
+                                if arg_index == arg_count { break; }
+
+                                let ref param = fun.params[arg_index];
+                                let ref arg = args[arg_index];
+                                if arg.is_expr() {
+                                    match self.expr_to_bytecode(arg) {
+                                        Ok(mut inner_codez) => codez.append(&mut inner_codez),
+                                        e => return e.chain_err(|| format!("{}", r)),
+                                    }
+                                }
+                                else if arg.is_identifier() {
+                                    codez.push(Bytecode::Load(arg.identifier().to_string()));
+                                }
+                                else {
+                                    codez.push(Bytecode::Push(arg.to_value()));
+                                }
+                                arg_index += 1;
+                            }
                         }
-                        codez.push(Bytecode::Call(name.to_string()));
+                        codez.push(Bytecode::Call(name.to_string(), arg_count));
                     }
                 },
                 // if it's a number, throw an error;
@@ -146,27 +182,30 @@ impl<'a> ToBytecode<'a> {
         Ok(codez)
     }
 
-    fn check_valid_argument_count(&self, fname: &str, argcount: usize) -> Result<()> {
-        let fun = self.fun_table
-            .get_fun(fname)
-            .expect("Checking argument count of invalid function");
-        let mut arg_index = argcount;
-        for ref param in &fun.params {
-            if arg_index == 0 && !(param.optional || param.varargs) {
-                return Err(format!("invalid number of arguments (got {}) for function {}", argcount, fun.name)
-                           .into());
-            }
-            else if param.optional {
-                continue;
-            }
-            else if param.varargs {
+    fn min_function_args(&self, fun: &Function) -> usize {
+        let mut count = 0;
+        for param in &fun.params {
+            if param.optional {
                 break;
             }
             else {
-                arg_index -= 1;
+                count += 1;
             }
         }
-        Ok(())
+        count
+    }
+
+    fn max_function_args(&self, fun: &Function) -> usize {
+        let mut count = 0;
+        for param in &fun.params {
+            if param.optional {
+                count += 1;
+            }
+            else {
+                count += 1;
+            }
+        }
+        count
     }
 
     fn let_builtin(&self, ast: &AST) -> Result<Vec<Bytecode>> {
@@ -244,7 +283,7 @@ impl<'a> ToBytecode<'a> {
             }
             let size = (codez.len() - 1) as i64;
             codez.push(Bytecode::Push(Value::StartArgs(size)));
-            codez.push(Bytecode::Call("list".to_string()));
+            codez.push(Bytecode::Call("list".to_string(), 0));
             Ok(codez)
         }
     }
@@ -289,7 +328,7 @@ impl<'a> ToBytecode<'a> {
                 codez.append(&mut first_codez);
                 codez.push(Bytecode::SkipFalse(second_codez.len() + 1));
                 codez.append(&mut second_codez);
-                codez.push(Bytecode::Skip(third_codez.len()));
+                codez.push(Bytecode::Skip(third_codez.len() + 1));
                 codez.append(&mut third_codez);
                 Ok(codez)
             }
